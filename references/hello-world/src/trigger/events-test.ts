@@ -27,3 +27,14 @@ export const slowWorker = task({
     return { name: payload.name, duration: Date.now() - start };
   },
 });
+
+// Subscriber that always fails — for DLQ testing
+export const failingWorker = task({
+  id: "failing-greeting-worker",
+  on: testEvent,
+  retry: { maxAttempts: 1 },
+  run: async (payload) => {
+    logger.error(`[failing-worker] About to crash for "${payload.name}"`);
+    throw new Error(`Intentional failure for DLQ testing: ${payload.name}`);
+  },
+});

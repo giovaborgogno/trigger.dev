@@ -148,13 +148,22 @@ export class EventDetailPresenter extends BasePresenter {
         return [];
       }
 
-      return result.map((row) => ({
-        eventId: row.event_id,
-        publishedAt: row.published_at,
-        fanOutCount: row.fan_out_count,
-        tags: row.tags.length > 0 ? row.tags : undefined,
-        publisherRunId: row.publisher_run_id || undefined,
-      }));
+      return result.map((row) => {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(row.payload);
+        } catch {
+          payload = row.payload;
+        }
+        return {
+          eventId: row.event_id,
+          publishedAt: row.published_at,
+          fanOutCount: row.fan_out_count,
+          payload,
+          tags: row.tags.length > 0 ? row.tags : undefined,
+          publisherRunId: row.publisher_run_id || undefined,
+        };
+      });
     } catch (e) {
       logger.warn("ClickHouse unavailable for event history", {
         error: e instanceof Error ? e.message : String(e),

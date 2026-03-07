@@ -1,6 +1,7 @@
 import { ArrowLeftIcon } from "@heroicons/react/20/solid";
 import { type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/server-runtime";
-import { type MetaFunction, Form, useSearchParams, useNavigation } from "@remix-run/react";
+import { type MetaFunction, Form, useSearchParams, useNavigation, useFetcher } from "@remix-run/react";
+import { useState } from "react";
 import { typedjson, useTypedLoaderData } from "remix-typedjson";
 import { z } from "zod";
 import type { ChartConfig } from "~/components/primitives/charts/Chart";
@@ -92,11 +93,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   return typedjson(data);
 };
 
-const ReplaySchema = z.object({
-  action: z.literal("replay"),
-  from: z.string(),
-  to: z.string(),
-});
+import { json } from "@remix-run/server-runtime";
+import { PublishEventService } from "~/v3/services/events/publishEvent.server";
+
+const ActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("replay"), from: z.string(), to: z.string() }),
+  z.object({ action: z.literal("replay-single"), payload: z.string() }),
+]);
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   const userId = await requireUserId(request);
@@ -114,45 +117,57 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   }
 
   const formData = await request.formData();
-  const parsed = ReplaySchema.safeParse(Object.fromEntries(formData));
+  const parsed = ActionSchema.safeParse(Object.fromEntries(formData));
 
   if (!parsed.success) {
-    return redirectWithErrorMessage(request.url, request, "Invalid replay parameters");
+    return redirectWithErrorMessage(request.url, request, "Invalid parameters");
   }
 
   const eventSlug = decodeURIComponent(eventParam);
-  const eventsPath = v3EventsPath(
-    { slug: organizationSlug },
-    { slug: projectParam },
-    { slug: envParam }
-  );
 
   try {
-    const service = new ReplayEventsService(
-      clickhouseClient,
-      undefined,
-      undefined,
-      writeEventLog
-    );
+    if (parsed.data.action === "replay") {
+      const service = new ReplayEventsService(
+        clickhouseClient,
+        undefined,
+        undefined,
+        writeEventLog
+      );
 
-    const result = await service.call({
-      eventSlug,
-      environment,
-      from: new Date(parsed.data.from),
-      to: new Date(parsed.data.to),
-    });
+      const result = await service.call({
+        eventSlug,
+        environment,
+        from: new Date(parsed.data.from),
+        to: new Date(parsed.data.to),
+      });
 
-    return redirectWithSuccessMessage(
-      request.url,
-      request,
-      `Replayed ${result.replayedCount} events (${result.skippedCount} skipped)`
-    );
+      return redirectWithSuccessMessage(
+        request.url,
+        request,
+        `Replayed ${result.replayedCount} events (${result.skippedCount} skipped)`
+      );
+    }
+
+    if (parsed.data.action === "replay-single") {
+      const payload = JSON.parse(parsed.data.payload);
+      const service = new PublishEventService(undefined, undefined, writeEventLog);
+      const result = await service.call(eventSlug, environment, payload);
+
+      return json({
+        success: true,
+        eventId: result.eventId,
+        runs: result.runs.length,
+      });
+    }
   } catch (error) {
     const message =
       error instanceof ServiceValidationError
         ? error.message
-        : "Failed to replay events";
-    return redirectWithErrorMessage(request.url, request, message);
+        : "Failed to replay event";
+    if (parsed.data.action === "replay") {
+      return redirectWithErrorMessage(request.url, request, message);
+    }
+    return json({ success: false, error: message }, { status: 422 });
   }
 };
 
@@ -293,11 +308,11 @@ export default function Page() {
                 config={chartConfig}
                 data={stats.buckets}
                 dataKey="timestamp"
-                showLegend
+                showLegend={false}
                 enableZoom={false}
-                minHeight="200px"
+                minHeight="250px"
               >
-                <Chart.Bar />
+                <Chart.Bar stackId="a" />
               </Chart.Root>
             ) : (
               <Paragraph variant="small" className="text-text-dimmed">
@@ -372,54 +387,11 @@ export default function Page() {
                 No recent events recorded.
               </Paragraph>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell>Event ID</TableHeaderCell>
-                    <TableHeaderCell>Published At</TableHeaderCell>
-                    <TableHeaderCell>Fan-out</TableHeaderCell>
-                    <TableHeaderCell>Tags</TableHeaderCell>
-                    <TableHeaderCell>Publisher Run</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentHistory.map((entry) => (
-                    <TableRow key={entry.eventId}>
-                      <TableCell>
-                        <span className="max-w-[120px] truncate font-mono text-xs">
-                          {entry.eventId}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <DateTime date={new Date(entry.publishedAt)} />
-                      </TableCell>
-                      <TableCell>{entry.fanOutCount}</TableCell>
-                      <TableCell>
-                        {entry.tags ? (
-                          <div className="flex flex-wrap gap-1">
-                            {entry.tags.map((tag) => (
-                              <Badge key={tag} variant="extra-small">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          "–"
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {entry.publisherRunId ? (
-                          <span className="max-w-[120px] truncate font-mono text-xs">
-                            {entry.publisherRunId}
-                          </span>
-                        ) : (
-                          "–"
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="flex flex-col gap-2">
+                {recentHistory.map((entry) => (
+                  <RecentEventRow key={entry.eventId} entry={entry} eventSlug={event.slug} />
+                ))}
+              </div>
             )}
           </div>
 
@@ -471,5 +443,93 @@ export default function Page() {
         </div>
       </PageBody>
     </PageContainer>
+  );
+}
+
+function RecentEventRow({
+  entry,
+  eventSlug,
+}: {
+  entry: {
+    eventId: string;
+    publishedAt: string;
+    fanOutCount: number;
+    payload: unknown;
+    tags?: string[];
+    publisherRunId?: string;
+  };
+  eventSlug: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const fetcher = useFetcher();
+  const isReplaying = fetcher.state !== "idle";
+  const replayResult = fetcher.data as
+    | { success: true; eventId: string; runs: number }
+    | { success: false; error: string }
+    | undefined;
+
+  return (
+    <div className="rounded border border-charcoal-700 bg-charcoal-850">
+      <div
+        className="flex cursor-pointer items-center gap-4 px-3 py-2 text-xs hover:bg-charcoal-800"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="w-5 text-text-dimmed">{expanded ? "▼" : "▶"}</span>
+        <span className="w-48 truncate font-mono text-text-dimmed">
+          {entry.eventId}
+        </span>
+        <span className="w-44">
+          <DateTime date={new Date(entry.publishedAt)} />
+        </span>
+        <span className="w-16 text-text-dimmed">
+          {entry.fanOutCount} fan-out
+        </span>
+        {entry.tags && entry.tags.length > 0 && (
+          <div className="flex gap-1">
+            {entry.tags.map((tag) => (
+              <Badge key={tag} variant="extra-small">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {replayResult?.success && (
+            <span className="text-success">Replayed</span>
+          )}
+          <Button
+            variant="minimal/small"
+            disabled={isReplaying}
+            onClick={(e) => {
+              e.stopPropagation();
+              fetcher.submit(
+                {
+                  action: "replay-single",
+                  payload: JSON.stringify(entry.payload),
+                },
+                { method: "post" }
+              );
+            }}
+          >
+            {isReplaying ? "Replaying..." : "Replay"}
+          </Button>
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t border-charcoal-700 px-3 py-2">
+          <div className="mb-1 text-xs font-medium text-text-dimmed">Payload</div>
+          <CodeBlock
+            code={JSON.stringify(entry.payload, null, 2)}
+            language="json"
+            showCopyButton
+          />
+          {entry.publisherRunId && (
+            <div className="mt-2 text-xs text-text-dimmed">
+              Publisher Run: <span className="font-mono">{entry.publisherRunId}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
