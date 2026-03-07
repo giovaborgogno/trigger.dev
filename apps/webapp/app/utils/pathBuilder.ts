@@ -284,7 +284,7 @@ export function v3CustomDashboardPath(
   environment: EnvironmentForPath,
   dashboard: { friendlyId: string }
 ) {
-  return `${v3EnvironmentPath(organization, project, environment)}/metrics/custom/${
+  return `${v3EnvironmentPath(organization, project, environment)}/dashboards/custom/${
     dashboard.friendlyId
   }`;
 }
@@ -295,7 +295,7 @@ export function v3BuiltInDashboardPath(
   environment: EnvironmentForPath,
   key: string
 ) {
-  return `${v3EnvironmentPath(organization, project, environment)}/metrics/${key}`;
+  return `${v3EnvironmentPath(organization, project, environment)}/dashboards/${key}`;
 }
 
 export function v3TestTaskPath(
@@ -325,7 +325,7 @@ export function v3CreateBulkActionPath(
   project: ProjectForPath,
   environment: EnvironmentForPath,
   filters?: TaskRunListSearchFilters,
-  mode?: "selected" | "filters",
+  mode?: "selected" | "filter",
   action?: "replay" | "cancel"
 ) {
   const searchParams = objectToSearchParams(filters) ?? new URLSearchParams();
@@ -554,6 +554,23 @@ export function v3LogsPath(
   environment: EnvironmentForPath
 ) {
   return `${v3EnvironmentPath(organization, project, environment)}/logs`;
+}
+
+export function v3ErrorsPath(
+  organization: OrgForPath,
+  project: ProjectForPath,
+  environment: EnvironmentForPath
+) {
+  return `${v3EnvironmentPath(organization, project, environment)}/errors`;
+}
+
+export function v3ErrorPath(
+  organization: OrgForPath,
+  project: ProjectForPath,
+  environment: EnvironmentForPath,
+  error: { fingerprint: string }
+) {
+  return `${v3ErrorsPath(organization, project, environment)}/${error.fingerprint}`;
 }
 
 export function v3DeploymentsPath(

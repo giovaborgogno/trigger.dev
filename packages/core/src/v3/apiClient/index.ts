@@ -34,6 +34,8 @@ import {
   CreateBatchRequestBody,
   CreateBatchResponse,
   CreateEnvironmentVariableRequestBody,
+  CreateInputStreamWaitpointRequestBody,
+  CreateInputStreamWaitpointResponseBody,
   CreateScheduleOptions,
   CreateStreamResponseBody,
   CreateUploadPayloadUrlResponseBody,
@@ -58,6 +60,7 @@ import {
   RetrieveRunResponse,
   RetrieveRunTraceResponseBody,
   ScheduleObject,
+  SendInputStreamResponseBody,
   StreamBatchItemsResponse,
   TaskRunExecutionResult,
   TriggerTaskRequestBody,
@@ -1334,6 +1337,8 @@ export class ApiClient {
       onComplete?: () => void;
       onError?: (error: Error) => void;
       lastEventId?: string;
+      /** Called for each SSE event with the full event metadata (id, timestamp). */
+      onPart?: (part: SSEStreamPart<T>) => void;
     }
   ): Promise<AsyncIterableStream<T>> {
     const streamFactory = new SSEStreamSubscriptionFactory(options?.baseUrl ?? this.baseUrl, {
@@ -1350,10 +1355,14 @@ export class ApiClient {
 
     const stream = await subscription.subscribe();
 
+    const onPart = options?.onPart;
+
     return stream.pipeThrough(
       new TransformStream<SSEStreamPart, T>({
         transform(chunk, controller) {
-          controller.enqueue(chunk.chunk as T);
+          const data = chunk.chunk as T;
+          onPart?.(chunk as SSEStreamPart<T>);
+          controller.enqueue(data);
         },
       })
     );
@@ -1397,6 +1406,41 @@ export class ApiClient {
         method: "POST",
         headers: this.#getHeaders(false),
         body: part,
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  async sendInputStream(
+    runId: string,
+    streamId: string,
+    data: unknown,
+    requestOptions?: ZodFetchOptions
+  ) {
+    return zodfetch(
+      SendInputStreamResponseBody,
+      `${this.baseUrl}/realtime/v1/streams/${runId}/input/${streamId}`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify({ data }),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  async createInputStreamWaitpoint(
+    runFriendlyId: string,
+    body: CreateInputStreamWaitpointRequestBody,
+    requestOptions?: ZodFetchOptions
+  ) {
+    return zodfetch(
+      CreateInputStreamWaitpointResponseBody,
+      `${this.baseUrl}/api/v1/runs/${runFriendlyId}/input-streams/wait`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body),
       },
       mergeRequestOptions(this.defaultRequestOptions, requestOptions)
     );
