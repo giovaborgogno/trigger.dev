@@ -446,6 +446,35 @@ export function v3QueuesPath(
   return `${v3EnvironmentPath(organization, project, environment)}/queues`;
 }
 
+export const v3EventParams = EnvironmentParamSchema.extend({
+  eventParam: z.string(),
+});
+
+export function v3EventsPath(
+  organization: OrgForPath,
+  project: ProjectForPath,
+  environment: EnvironmentForPath
+) {
+  return `${v3EnvironmentPath(organization, project, environment)}/events`;
+}
+
+export function v3EventPath(
+  organization: OrgForPath,
+  project: ProjectForPath,
+  environment: EnvironmentForPath,
+  event: { slug: string }
+) {
+  return `${v3EventsPath(organization, project, environment)}/${encodeURIComponent(event.slug)}`;
+}
+
+export function v3EventsDlqPath(
+  organization: OrgForPath,
+  project: ProjectForPath,
+  environment: EnvironmentForPath
+) {
+  return `${v3EventsPath(organization, project, environment)}/dlq`;
+}
+
 export function v3WaitpointTokensPath(
   organization: OrgForPath,
   project: ProjectForPath,

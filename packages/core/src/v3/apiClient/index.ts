@@ -8,7 +8,24 @@ import {
   ApiDeploymentListSearchParams,
   AppendToStreamResponseBody,
   BatchItemNDJSON,
+  BatchPublishEventRequestBody,
+  BatchPublishEventResponseBody,
   BatchTaskRunExecutionResult,
+  DiscardDeadLetterEventResponseBody,
+  GetEventHistoryResponseBody,
+  GetEventResponseBody,
+  GetEventSchemaResponseBody,
+  GetEventStatsResponseBody,
+  ListDeadLetterEventsResponseBody,
+  ListEventsResponseBody,
+  ReplayEventsRequestBody,
+  ReplayEventsResponseBody,
+  RetryAllDeadLetterEventsResponseBody,
+  RetryDeadLetterEventResponseBody,
+  PublishAndWaitEventRequestBody,
+  PublishAndWaitEventResponseBody,
+  PublishEventRequestBody,
+  PublishEventResponseBody,
   BatchTriggerTaskV3RequestBody,
   BatchTriggerTaskV3Response,
   CanceledRunResponse,
@@ -1480,6 +1497,245 @@ export class ApiClient {
         method: "POST",
         headers: this.#getHeaders(false),
         body: JSON.stringify(body),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  publishEvent(
+    eventId: string,
+    body: PublishEventRequestBody,
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      PublishEventResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/publish`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  batchPublishEvent(
+    eventId: string,
+    body: BatchPublishEventRequestBody,
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      BatchPublishEventResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/batchPublish`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  publishAndWaitEvent(
+    eventId: string,
+    body: PublishAndWaitEventRequestBody,
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      PublishAndWaitEventResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/publishAndWait`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  listEvents(requestOptions?: ZodFetchOptions) {
+    return zodfetch(
+      ListEventsResponseBody,
+      `${this.baseUrl}/api/v1/events`,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  getEvent(eventId: string, requestOptions?: ZodFetchOptions) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      GetEventResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}`,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  getEventSchema(eventId: string, requestOptions?: ZodFetchOptions) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      GetEventSchemaResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/schema`,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  getEventStats(
+    eventId: string,
+    params?: { period?: string },
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+    const searchParams = new URLSearchParams();
+    if (params?.period) searchParams.set("period", params.period);
+    const qs = searchParams.toString();
+
+    return zodfetch(
+      GetEventStatsResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/stats${qs ? `?${qs}` : ""}`,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  getEventHistory(
+    eventId: string,
+    params?: {
+      from?: string;
+      to?: string;
+      limit?: number;
+      cursor?: string;
+      publisherRunId?: string;
+    },
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+    const searchParams = new URLSearchParams();
+    if (params?.from) searchParams.set("from", params.from);
+    if (params?.to) searchParams.set("to", params.to);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.cursor) searchParams.set("cursor", params.cursor);
+    if (params?.publisherRunId) searchParams.set("publisherRunId", params.publisherRunId);
+
+    const qs = searchParams.toString();
+    const url = `${this.baseUrl}/api/v1/events/${encodedEventId}/history${qs ? `?${qs}` : ""}`;
+
+    return zodfetch(
+      GetEventHistoryResponseBody,
+      url,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  replayEvents(
+    eventId: string,
+    body: z.input<typeof ReplayEventsRequestBody>,
+    requestOptions?: ZodFetchOptions
+  ) {
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return zodfetch(
+      ReplayEventsResponseBody,
+      `${this.baseUrl}/api/v1/events/${encodedEventId}/replay`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  listDeadLetterEvents(
+    params?: {
+      eventType?: string;
+      status?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    requestOptions?: ZodFetchOptions
+  ) {
+    const searchParams = new URLSearchParams();
+    if (params?.eventType) searchParams.set("eventType", params.eventType);
+    if (params?.status) searchParams.set("status", params.status);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.cursor) searchParams.set("cursor", params.cursor);
+
+    const qs = searchParams.toString();
+    const url = `${this.baseUrl}/api/v1/events/dlq${qs ? `?${qs}` : ""}`;
+
+    return zodfetch(
+      ListDeadLetterEventsResponseBody,
+      url,
+      {
+        method: "GET",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  retryDeadLetterEvent(id: string, requestOptions?: ZodFetchOptions) {
+    return zodfetch(
+      RetryDeadLetterEventResponseBody,
+      `${this.baseUrl}/api/v1/events/dlq/${encodeURIComponent(id)}/retry`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  discardDeadLetterEvent(id: string, requestOptions?: ZodFetchOptions) {
+    return zodfetch(
+      DiscardDeadLetterEventResponseBody,
+      `${this.baseUrl}/api/v1/events/dlq/${encodeURIComponent(id)}/discard`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+      },
+      mergeRequestOptions(this.defaultRequestOptions, requestOptions)
+    );
+  }
+
+  retryAllDeadLetterEvents(
+    body?: { eventType?: string },
+    requestOptions?: ZodFetchOptions
+  ) {
+    return zodfetch(
+      RetryAllDeadLetterEventsResponseBody,
+      `${this.baseUrl}/api/v1/events/dlq/retry-all`,
+      {
+        method: "POST",
+        headers: this.#getHeaders(false),
+        body: JSON.stringify(body ?? {}),
       },
       mergeRequestOptions(this.defaultRequestOptions, requestOptions)
     );

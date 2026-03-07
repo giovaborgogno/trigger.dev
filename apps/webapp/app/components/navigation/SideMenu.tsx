@@ -5,6 +5,7 @@ import {
   ArrowTopRightOnSquareIcon,
   BeakerIcon,
   BellAlertIcon,
+  BoltIcon,
   ChartBarIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -79,6 +80,7 @@ import {
   v3ProjectPath,
   v3ProjectSettingsGeneralPath,
   v3ProjectSettingsIntegrationsPath,
+  v3EventsPath,
   v3QueuesPath,
   v3RunsPath,
   v3SchedulesPath,
@@ -423,6 +425,15 @@ export function SideMenu({
                 inactiveIconColor="text-queues"
                 to={v3QueuesPath(organization, project, environment)}
                 data-action="queues"
+                isCollapsed={isCollapsed}
+              />
+              <SideMenuItem
+                name="Events"
+                icon={BoltIcon}
+                activeIconColor="text-amber-500"
+                inactiveIconColor="text-amber-500"
+                to={v3EventsPath(organization, project, environment)}
+                data-action="events"
                 isCollapsed={isCollapsed}
               />
               <SideMenuItem

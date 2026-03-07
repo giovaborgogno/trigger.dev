@@ -27,6 +27,8 @@ import {
   getLogsSearchListQueryBuilder,
 } from "./taskEvents.js";
 import { insertMetrics } from "./metrics.js";
+import { insertEventLog, getEventLogQueryBuilder } from "./eventLog.js";
+import { getEventCountsQueryBuilder } from "./eventCounts.js";
 import {
   getErrorGroups,
   getErrorInstances,
@@ -44,6 +46,8 @@ import type { Agent as HttpsAgent } from "https";
 export type * from "./taskRuns.js";
 export type * from "./taskEvents.js";
 export type * from "./metrics.js";
+export type * from "./eventLog.js";
+export type * from "./eventCounts.js";
 export type * from "./errors.js";
 export type * from "./client/queryBuilder.js";
 
@@ -238,6 +242,19 @@ export class ClickHouse {
   get taskEventsSearch() {
     return {
       logsListQueryBuilder: getLogsSearchListQueryBuilder(this.reader),
+    };
+  }
+
+  get eventLog() {
+    return {
+      insert: insertEventLog(this.writer),
+      queryBuilder: getEventLogQueryBuilder(this.reader),
+    };
+  }
+
+  get eventCounts() {
+    return {
+      queryBuilder: getEventCountsQueryBuilder(this.reader),
     };
   }
 

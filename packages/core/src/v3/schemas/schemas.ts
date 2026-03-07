@@ -174,6 +174,48 @@ export const QueueManifest = z.object({
 
 export type QueueManifest = z.infer<typeof QueueManifest>;
 
+export const EventRateLimitManifest = z.object({
+  /** Maximum number of publishes allowed in the window */
+  limit: z.number().int().positive(),
+  /** Time window — e.g. "1m", "10s", "1h" */
+  window: z.string(),
+});
+
+export type EventRateLimitManifest = z.infer<typeof EventRateLimitManifest>;
+
+export const EventOrderingManifest = z.object({
+  /** Maximum number of ordering keys processed in parallel */
+  concurrencyLimit: z.number().int().positive().optional(),
+});
+
+export type EventOrderingManifest = z.infer<typeof EventOrderingManifest>;
+
+export const EventDLQManifest = z.object({
+  /** Whether to store failed event-triggered runs in the DLQ (default: true) */
+  enabled: z.boolean().optional(),
+});
+
+export type EventDLQManifest = z.infer<typeof EventDLQManifest>;
+
+export const EventManifest = z.object({
+  /** Unique event identifier (e.g. "order.created") */
+  id: z.string(),
+  /** Schema version */
+  version: z.string(),
+  /** Optional human-readable description */
+  description: z.string().optional(),
+  /** JSON Schema of the event payload (Draft 7) */
+  schema: z.unknown().optional(),
+  /** Rate limit configuration */
+  rateLimit: EventRateLimitManifest.optional(),
+  /** Ordering configuration — creates a dedicated queue with per-key serialization */
+  ordering: EventOrderingManifest.optional(),
+  /** Dead letter queue configuration */
+  dlq: EventDLQManifest.optional(),
+});
+
+export type EventManifest = z.infer<typeof EventManifest>;
+
 export const ScheduleMetadata = z.object({
   cron: z.string(),
   timezone: z.string(),
@@ -190,6 +232,19 @@ const taskMetadata = {
   schedule: ScheduleMetadata.optional(),
   maxDuration: z.number().optional(),
   payloadSchema: z.unknown().optional(),
+  /** Event ID that this task subscribes to (set when task uses `on: someEvent`) */
+  onEvent: z.string().optional(),
+  /** Event filter for content-based routing (set when task uses `on: someEvent` with `filter`) */
+  onEventFilter: z.unknown().optional(),
+  /** Wildcard pattern for pattern-based subscriptions (set when task uses `on: events.match("order.*")`) */
+  onEventPattern: z.string().optional(),
+  /** Consumer group name — within a group, only one task receives each event */
+  onEventConsumerGroup: z.string().optional(),
+  /** Per-subscriber rate limit — controls how fast this task receives events */
+  onEventConsumerRateLimit: z.object({
+    limit: z.number().int().positive(),
+    window: z.string(),
+  }).optional(),
 };
 
 export const TaskMetadata = z.object(taskMetadata);

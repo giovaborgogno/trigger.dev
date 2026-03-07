@@ -2,6 +2,7 @@ import {
   BackgroundWorkerMetadata,
   BackgroundWorkerSourceFileMetadata,
   CreateBackgroundWorkerRequestBody,
+  EventManifest,
   QueueManifest,
   TaskResource,
 } from "@trigger.dev/core/v3";
@@ -17,6 +18,7 @@ import {
   removeQueueConcurrencyLimits,
   updateEnvConcurrencyLimits,
   updateQueueConcurrencyLimits,
+  updateGlobalQueueConcurrencyLimits,
 } from "../runQueue.server";
 import { calculateNextBuildVersion } from "../utils/calculateNextBuildVersion";
 import { clampMaxDuration } from "../utils/maxDuration";
@@ -216,6 +218,9 @@ export async function createWorkerResources(
 
   // Create the tasks
   await createWorkerTasks(metadata, queues, worker, environment, prisma, tasksToBackgroundFiles);
+
+  // Register events and subscriptions
+  await syncWorkerEvents(metadata, worker, environment, prisma);
 }
 
 async function createWorkerTasks(
@@ -282,6 +287,7 @@ async function createWorkerTask(
         maxDurationInSeconds: task.maxDuration ? clampMaxDuration(task.maxDuration) : null,
         queueId: queue.id,
         payloadSchema: task.payloadSchema as any,
+        onEventSlug: task.onEvent ?? null,
       },
     });
   } catch (error) {
@@ -320,6 +326,169 @@ async function createWorkerTask(
       });
     }
   }
+}
+
+async function syncWorkerEvents(
+  metadata: BackgroundWorkerMetadata,
+  worker: BackgroundWorker,
+  environment: AuthenticatedEnvironment,
+  prisma: PrismaClientOrTransaction
+) {
+  // 1. Upsert EventDefinitions from the manifest
+  const eventDefinitions = new Map<string, string>(); // slug → EventDefinition.id
+
+  if (metadata.events && metadata.events.length > 0) {
+    for (const event of metadata.events) {
+      const eventDef = await prisma.eventDefinition.upsert({
+        where: {
+          projectId_slug_version: {
+            projectId: worker.projectId,
+            slug: event.id,
+            version: event.version ?? "1.0",
+          },
+        },
+        create: {
+          slug: event.id,
+          version: event.version ?? "1.0",
+          description: event.description,
+          schema: event.schema as any ?? undefined,
+          rateLimit: event.rateLimit as any ?? undefined,
+          dlqConfig: event.dlq as any ?? undefined,
+          projectId: worker.projectId,
+        },
+        update: {
+          description: event.description,
+          schema: event.schema as any ?? undefined,
+          rateLimit: event.rateLimit as any ?? undefined,
+          dlqConfig: event.dlq as any ?? undefined,
+        },
+      });
+
+      eventDefinitions.set(event.id, eventDef.id);
+
+      // Create ordering queue for events that have ordering config
+      if (event.ordering) {
+        const orderingQueueName = `evt-order:${event.id}`;
+        const globalLimit = event.ordering.concurrencyLimit ?? environment.maximumConcurrencyLimit;
+
+        await upsertWorkerQueueRecord(
+          orderingQueueName,
+          1, // per-key limit: always 1 for strict ordering
+          orderingQueueName,
+          "NAMED",
+          worker,
+          prisma
+        );
+
+        // Set per-key limit = 1 in Redis
+        await updateQueueConcurrencyLimits(environment, orderingQueueName, 1);
+        // Set global limit in Redis (total concurrent across all keys)
+        await updateGlobalQueueConcurrencyLimits(environment, orderingQueueName, globalLimit);
+      }
+    }
+  }
+
+  // 2. Find tasks that subscribe to events (have onEvent set)
+  const tasksWithEvents = metadata.tasks.filter((t) => t.onEvent);
+
+  // 3. Upsert EventSubscriptions for each task with onEvent
+  const activeSubscriptionIds = new Set<string>();
+
+  for (const task of tasksWithEvents) {
+    if (!task.onEvent) continue;
+
+    // Ensure the EventDefinition exists (it may have been defined in a different project or not in this manifest)
+    let eventDefId = eventDefinitions.get(task.onEvent);
+
+    if (!eventDefId) {
+      // The event might already exist in the database from a previous deploy
+      const existingDef = await prisma.eventDefinition.findFirst({
+        where: {
+          projectId: worker.projectId,
+          slug: task.onEvent,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+
+      if (existingDef) {
+        eventDefId = existingDef.id;
+      } else {
+        // Auto-create a basic EventDefinition for events referenced by tasks but not explicitly defined
+        const newDef = await prisma.eventDefinition.create({
+          data: {
+            slug: task.onEvent,
+            version: "1.0",
+            projectId: worker.projectId,
+          },
+        });
+        eventDefId = newDef.id;
+        eventDefinitions.set(task.onEvent, eventDefId);
+      }
+    }
+
+    // Look up event ordering config for this task's event
+    const eventManifest = metadata.events?.find((e) => e.id === task.onEvent);
+    const eventOrdering = eventManifest?.ordering;
+
+    // If the event has ordering config, set globalConcurrencyLimit on this task's queue
+    if (eventOrdering?.concurrencyLimit) {
+      const taskQueueName = `task/${task.id}`;
+      await updateGlobalQueueConcurrencyLimits(
+        environment,
+        taskQueueName,
+        eventOrdering.concurrencyLimit
+      );
+    }
+
+    const subscription = await prisma.eventSubscription.upsert({
+      where: {
+        eventDefinitionId_taskSlug_environmentId: {
+          eventDefinitionId: eventDefId,
+          taskSlug: task.id,
+          environmentId: environment.id,
+        },
+      },
+      create: {
+        eventDefinitionId: eventDefId,
+        taskSlug: task.id,
+        environmentId: environment.id,
+        projectId: worker.projectId,
+        workerId: worker.id,
+        enabled: true,
+        filter: (task.onEventFilter as any) ?? undefined,
+        pattern: task.onEventPattern ?? undefined,
+        consumerGroup: task.onEventConsumerGroup ?? undefined,
+        rateLimit: (task.onEventConsumerRateLimit as any) ?? undefined,
+      },
+      update: {
+        workerId: worker.id,
+        enabled: true,
+        filter: (task.onEventFilter as any) ?? undefined,
+        pattern: task.onEventPattern ?? undefined,
+        consumerGroup: task.onEventConsumerGroup ?? undefined,
+        rateLimit: (task.onEventConsumerRateLimit as any) ?? undefined,
+      },
+    });
+
+    activeSubscriptionIds.add(subscription.id);
+  }
+
+  // 4. Disable subscriptions from previous workers that are no longer active
+  //    (tasks that stopped subscribing to events in this deploy)
+  await prisma.eventSubscription.updateMany({
+    where: {
+      projectId: worker.projectId,
+      environmentId: environment.id,
+      id: {
+        notIn: Array.from(activeSubscriptionIds),
+      },
+    },
+    data: {
+      enabled: false,
+    },
+  });
 }
 
 async function createWorkerQueues(

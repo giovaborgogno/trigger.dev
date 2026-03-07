@@ -341,6 +341,21 @@ export class RunQueue {
     return this.redis.del(this.keys.queueConcurrencyLimitKey(env, queue));
   }
 
+  public async updateGlobalQueueConcurrencyLimits(
+    env: MinimalAuthenticatedEnvironment,
+    queue: string,
+    concurrency: number
+  ) {
+    return this.redis.set(this.keys.queueGlobalConcurrencyLimitKey(env, queue), concurrency);
+  }
+
+  public async removeGlobalQueueConcurrencyLimits(
+    env: MinimalAuthenticatedEnvironment,
+    queue: string
+  ) {
+    return this.redis.del(this.keys.queueGlobalConcurrencyLimitKey(env, queue));
+  }
+
   public async getQueueConcurrencyLimit(env: MinimalAuthenticatedEnvironment, queue: string) {
     const result = await this.redis.get(this.keys.queueConcurrencyLimitKey(env, queue));
 
@@ -906,6 +921,7 @@ export class RunQueue {
           this.keys.envCurrentConcurrencyKeyFromQueue(message.queue),
           this.keys.queueCurrentDequeuedKeyFromQueue(message.queue),
           this.keys.envCurrentDequeuedKeyFromQueue(message.queue),
+          this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(message.queue),
           messageId
         );
       },
@@ -1655,6 +1671,7 @@ export class RunQueue {
     const queueCurrentDequeuedKey = this.keys.queueCurrentDequeuedKeyFromQueue(message.queue);
     const envCurrentDequeuedKey = this.keys.envCurrentDequeuedKeyFromQueue(message.queue);
     const envQueueKey = this.keys.envQueueKeyFromQueue(message.queue);
+    const globalCurrentConcurrencyKey = this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(message.queue);
     const masterQueueKey = this.keys.masterQueueKeyForEnvironment(
       message.environmentId,
       this.shardCount
@@ -1694,6 +1711,7 @@ export class RunQueue {
         envCurrentDequeuedKey,
         envQueueKey,
         ttlInfo.ttlQueueKey,
+        globalCurrentConcurrencyKey,
         queueName,
         messageId,
         messageData,
@@ -1711,6 +1729,7 @@ export class RunQueue {
         queueCurrentDequeuedKey,
         envCurrentDequeuedKey,
         envQueueKey,
+        globalCurrentConcurrencyKey,
         queueName,
         messageId,
         messageData,
@@ -1745,6 +1764,10 @@ export class RunQueue {
       const messageKeyPrefix = this.keys.messageKeyPrefixFromQueue(messageQueue);
       const envQueueKey = this.keys.envQueueKeyFromQueue(messageQueue);
       const masterQueueKey = this.keys.masterQueueKeyForShard(shard);
+      const globalConcurrencyLimitKey =
+        this.keys.queueGlobalConcurrencyLimitKeyFromQueue(messageQueue);
+      const globalCurrentConcurrencyKey =
+        this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(messageQueue);
 
       // Get TTL queue key if TTL system is enabled
       const ttlShardCount = this.options.ttlSystem?.shardCount ?? this.shardCount;
@@ -1767,6 +1790,8 @@ export class RunQueue {
         envQueueKey,
         masterQueueKey,
         ttlQueueKey,
+        globalConcurrencyLimitKey,
+        globalCurrentConcurrencyKey,
         shard,
         maxCount,
       });
@@ -1783,6 +1808,8 @@ export class RunQueue {
         envQueueKey,
         masterQueueKey,
         ttlQueueKey,
+        globalConcurrencyLimitKey,
+        globalCurrentConcurrencyKey,
         //args
         messageQueue,
         String(Date.now()),
@@ -2036,6 +2063,7 @@ export class RunQueue {
       envCurrentDequeuedKey,
       envQueueKey,
       workerQueueKey,
+      this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(message.queue),
       messageId,
       messageQueue,
       messageKeyValue,
@@ -2078,6 +2106,7 @@ export class RunQueue {
       envCurrentConcurrencyKey,
       queueCurrentDequeuedKey,
       envCurrentDequeuedKey,
+      this.keys.queueGlobalCurrentConcurrencyKey(env, queue),
       messageId
     );
   }
@@ -2124,6 +2153,7 @@ export class RunQueue {
       queueCurrentDequeuedKey,
       envCurrentDequeuedKey,
       envQueueKey,
+      this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(message.queue),
       //args
       messageId,
       messageQueue,
@@ -2157,6 +2187,7 @@ export class RunQueue {
       envCurrentDequeuedKey,
       envQueueKey,
       deadLetterQueueKey,
+      this.keys.queueGlobalCurrentConcurrencyKeyFromQueue(message.queue),
       messageId,
       messageQueue
     );
@@ -2502,7 +2533,7 @@ end
     });
 
     this.redis.defineCommand("enqueueMessage", {
-      numberOfKeys: 8,
+      numberOfKeys: 9,
       lua: `
 local masterQueueKey = KEYS[1]
 local queueKey = KEYS[2]
@@ -2512,6 +2543,7 @@ local envCurrentConcurrencyKey = KEYS[5]
 local queueCurrentDequeuedKey = KEYS[6]
 local envCurrentDequeuedKey = KEYS[7]
 local envQueueKey = KEYS[8]
+local globalCurrentConcurrencyKey = KEYS[9]
 
 local queueName = ARGV[1]
 local messageId = ARGV[2]
@@ -2541,12 +2573,13 @@ redis.call('SREM', queueCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
       `,
     });
 
     // Enqueue with TTL tracking - atomically adds to both normal queue and TTL sorted set
     this.redis.defineCommand("enqueueMessageWithTtl", {
-      numberOfKeys: 9,
+      numberOfKeys: 10,
       lua: `
 local masterQueueKey = KEYS[1]
 local queueKey = KEYS[2]
@@ -2557,6 +2590,7 @@ local queueCurrentDequeuedKey = KEYS[6]
 local envCurrentDequeuedKey = KEYS[7]
 local envQueueKey = KEYS[8]
 local ttlQueueKey = KEYS[9]
+local globalCurrentConcurrencyKey = KEYS[10]
 
 local queueName = ARGV[1]
 local messageId = ARGV[2]
@@ -2591,6 +2625,7 @@ redis.call('SREM', queueCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
       `,
     });
 
@@ -2663,6 +2698,11 @@ for i, member in ipairs(expiredMembers) do
       redis.call('SREM', concurrencyKey, runId)
       redis.call('SREM', dequeuedKey, runId)
 
+      -- Remove from global concurrency set (strip :ck:* suffix to get base queue key)
+      local globalQueueKey = string.gsub(rawQueueKey, ":ck:.+$", "")
+      local globalCurrentConcurrencyKey = keyPrefix .. globalQueueKey .. ":globalCurrentConcurrency"
+      redis.call('SREM', globalCurrentConcurrencyKey, runId)
+
       -- Env concurrency (derive from rawQueueKey; must match RunQueueKeyProducer: org + proj + env)
       -- rawQueueKey format: {org:X}:proj:Y:env:Z:queue:Q[:ck:C]
       local projMatch = string.match(rawQueueKey, ":proj:([^:]+):env:")
@@ -2692,7 +2732,7 @@ return results
     });
 
     this.redis.defineCommand("dequeueMessagesFromQueue", {
-      numberOfKeys: 10,
+      numberOfKeys: 12,
       lua: `
 local queueKey = KEYS[1]
 local queueConcurrencyLimitKey = KEYS[2]
@@ -2704,6 +2744,8 @@ local messageKeyPrefix = KEYS[7]
 local envQueueKey = KEYS[8]
 local masterQueueKey = KEYS[9]
 local ttlQueueKey = KEYS[10]  -- Optional: TTL sorted set key (empty string if not used)
+local globalConcurrencyLimitKey = KEYS[11]  -- Global queue concurrency limit (without :ck:)
+local globalCurrentConcurrencyKey = KEYS[12]  -- Global queue concurrency tracking (without :ck:)
 
 local queueName = ARGV[1]
 local currentTime = tonumber(ARGV[2])
@@ -2722,7 +2764,7 @@ if envCurrentConcurrency >= envConcurrencyLimitWithBurstFactor then
     return nil
 end
 
--- Check current queue concurrency against the limit
+-- Check current queue concurrency against the limit (per-key when concurrencyKey is used)
 local queueCurrentConcurrency = tonumber(redis.call('SCARD', queueCurrentConcurrencyKey) or '0')
 local queueConcurrencyLimit = math.min(tonumber(redis.call('GET', queueConcurrencyLimitKey) or '1000000'), envConcurrencyLimit)
 local totalQueueConcurrencyLimit = queueConcurrencyLimit
@@ -2732,10 +2774,23 @@ if queueCurrentConcurrency >= totalQueueConcurrencyLimit then
     return nil
 end
 
+-- Check global queue concurrency limit (across all concurrency keys)
+-- Only applies when globalConcurrencyLimitKey is set (e.g. for event ordering queues)
+local globalAvailableCapacity = 1000000
+local globalConcurrencyLimitRaw = redis.call('GET', globalConcurrencyLimitKey)
+if globalConcurrencyLimitRaw then
+    local globalConcurrencyLimit = tonumber(globalConcurrencyLimitRaw)
+    local globalCurrentConcurrency = tonumber(redis.call('SCARD', globalCurrentConcurrencyKey) or '0')
+    if globalCurrentConcurrency >= globalConcurrencyLimit then
+        return nil
+    end
+    globalAvailableCapacity = globalConcurrencyLimit - globalCurrentConcurrency
+end
+
 -- Calculate how many messages we can actually dequeue based on concurrency limits
 local envAvailableCapacity = envConcurrencyLimitWithBurstFactor - envCurrentConcurrency
 local queueAvailableCapacity = totalQueueConcurrencyLimit - queueCurrentConcurrency
-local actualMaxCount = math.min(maxCount, envAvailableCapacity, queueAvailableCapacity)
+local actualMaxCount = math.min(maxCount, envAvailableCapacity, queueAvailableCapacity, globalAvailableCapacity)
 
 if actualMaxCount <= 0 then
     return nil
@@ -2778,6 +2833,11 @@ for i = 1, #messages, 2 do
             redis.call('ZREM', envQueueKey, messageId)
             redis.call('SADD', queueCurrentConcurrencyKey, messageId)
             redis.call('SADD', envCurrentConcurrencyKey, messageId)
+
+            -- Track global queue concurrency (only if global limit is configured)
+            if globalConcurrencyLimitRaw then
+                redis.call('SADD', globalCurrentConcurrencyKey, messageId)
+            end
 
             -- Remove from TTL set if provided (run is being executed, not expired)
             if ttlQueueKey and ttlQueueKey ~= '' and ttlExpiresAt then
@@ -2868,7 +2928,7 @@ return message
     });
 
     this.redis.defineCommand("acknowledgeMessage", {
-      numberOfKeys: 9,
+      numberOfKeys: 10,
       lua: `
 -- Keys:
 local masterQueueKey = KEYS[1]
@@ -2880,6 +2940,7 @@ local queueCurrentDequeuedKey = KEYS[6]
 local envCurrentDequeuedKey = KEYS[7]
 local envQueueKey = KEYS[8]
 local workerQueueKey = KEYS[9]
+local globalCurrentConcurrencyKey = KEYS[10]
 
 -- Args:
 local messageId = ARGV[1]
@@ -2904,6 +2965,7 @@ end
 
 -- Update the concurrency keys
 redis.call('SREM', queueCurrentConcurrencyKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
@@ -2916,7 +2978,7 @@ end
     });
 
     this.redis.defineCommand("nackMessage", {
-      numberOfKeys: 8,
+      numberOfKeys: 9,
       lua: `
 -- Keys:
 local masterQueueKey = KEYS[1]
@@ -2927,6 +2989,7 @@ local envCurrentConcurrencyKey = KEYS[5]
 local queueCurrentDequeuedKey = KEYS[6]
 local envCurrentDequeuedKey = KEYS[7]
 local envQueueKey = KEYS[8]
+local globalCurrentConcurrencyKey = KEYS[9]
 
 -- Args:
 local messageId = ARGV[1]
@@ -2939,6 +3002,7 @@ redis.call('SET', messageKey, messageData)
 
 -- Update the concurrency keys
 redis.call('SREM', queueCurrentConcurrencyKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
@@ -2958,7 +3022,7 @@ end
     });
 
     this.redis.defineCommand("moveToDeadLetterQueue", {
-      numberOfKeys: 9,
+      numberOfKeys: 10,
       lua: `
 -- Keys:
 local masterQueueKey = KEYS[1]
@@ -2970,6 +3034,7 @@ local queueCurrentDequeuedKey = KEYS[6]
 local envCurrentDequeuedKey = KEYS[7]
 local envQueueKey = KEYS[8]
 local deadLetterQueueKey = KEYS[9]
+local globalCurrentConcurrencyKey = KEYS[10]
 
 -- Args:
 local messageId = ARGV[1]
@@ -2992,6 +3057,7 @@ redis.call('ZADD', deadLetterQueueKey, tonumber(redis.call('TIME')[1]), messageI
 
 -- Update the concurrency keys
 redis.call('SREM', queueCurrentConcurrencyKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
@@ -2999,13 +3065,14 @@ redis.call('SREM', envCurrentDequeuedKey, messageId)
     });
 
     this.redis.defineCommand("releaseConcurrency", {
-      numberOfKeys: 4,
+      numberOfKeys: 5,
       lua: `
 -- Keys:
 local queueCurrentConcurrencyKey = KEYS[1]
 local envCurrentConcurrencyKey = KEYS[2]
 local queueCurrentDequeuedKey = KEYS[3]
 local envCurrentDequeuedKey = KEYS[4]
+local globalCurrentConcurrencyKey = KEYS[5]
 
 -- Args:
 local messageId = ARGV[1]
@@ -3015,6 +3082,7 @@ redis.call('SREM', queueCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
 `,
     });
 
@@ -3098,19 +3166,21 @@ return results
     });
 
     this.redis.defineCommand("clearMessageFromConcurrencySets", {
-      numberOfKeys: 4,
+      numberOfKeys: 5,
       lua: `
 -- Keys:
 local queueCurrentConcurrencyKey = KEYS[1]
 local envCurrentConcurrencyKey = KEYS[2]
 local queueCurrentDequeuedKey = KEYS[3]
 local envCurrentDequeuedKey = KEYS[4]
+local globalCurrentConcurrencyKey = KEYS[5]
 
 -- Args:
 local messageId = ARGV[1]
 
 -- Update the concurrency keys
 redis.call('SREM', queueCurrentConcurrencyKey, messageId)
+redis.call('SREM', globalCurrentConcurrencyKey, messageId)
 redis.call('SREM', envCurrentConcurrencyKey, messageId)
 redis.call('SREM', queueCurrentDequeuedKey, messageId)
 redis.call('SREM', envCurrentDequeuedKey, messageId)
@@ -3139,6 +3209,7 @@ declare module "@internal/redis" {
       queueCurrentDequeuedKey: string,
       envCurrentDequeuedKey: string,
       envQueueKey: string,
+      globalCurrentConcurrencyKey: string,
       //args
       queueName: string,
       messageId: string,
@@ -3158,6 +3229,7 @@ declare module "@internal/redis" {
       envCurrentDequeuedKey: string,
       envQueueKey: string,
       ttlQueueKey: string,
+      globalCurrentConcurrencyKey: string,
       //args
       queueName: string,
       messageId: string,
@@ -3194,6 +3266,8 @@ declare module "@internal/redis" {
       envQueueKey: string,
       masterQueueKey: string,
       ttlQueueKey: string,
+      globalConcurrencyLimitKey: string,
+      globalCurrentConcurrencyKey: string,
       //args
       childQueueName: string,
       currentTime: string,
@@ -3228,6 +3302,7 @@ declare module "@internal/redis" {
       envCurrentDequeuedKey: string,
       envQueueKey: string,
       workerQueueKey: string,
+      globalCurrentConcurrencyKey: string,
       // args
       messageId: string,
       messageQueueName: string,
@@ -3242,6 +3317,7 @@ declare module "@internal/redis" {
       envCurrentConcurrencyKey: string,
       queueCurrentDequeuedKey: string,
       envCurrentDequeuedKey: string,
+      globalCurrentConcurrencyKey: string,
       // args
       messageId: string,
       callback?: Callback<void>
@@ -3257,6 +3333,7 @@ declare module "@internal/redis" {
       queueCurrentDequeuedKey: string,
       envCurrentDequeuedKey: string,
       envQueueKey: string,
+      globalCurrentConcurrencyKey: string,
       // args
       messageId: string,
       messageQueueName: string,
@@ -3276,6 +3353,7 @@ declare module "@internal/redis" {
       envCurrentDequeuedKey: string,
       envQueueKey: string,
       deadLetterQueueKey: string,
+      globalCurrentConcurrencyKey: string,
       // args
       messageId: string,
       messageQueueName: string,
@@ -3288,6 +3366,7 @@ declare module "@internal/redis" {
       envCurrentConcurrencyKey: string,
       queueCurrentDequeuedKey: string,
       envCurrentDequeuedKey: string,
+      globalCurrentConcurrencyKey: string,
       // args
       messageId: string,
       callback?: Callback<void>

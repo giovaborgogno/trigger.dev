@@ -8,6 +8,7 @@ export * from "./errors.js";
 export * from "./limits.js";
 export * from "./logger-api.js";
 export * from "./runtime-api.js";
+export type { EventWaitResult } from "./runtime/manager.js";
 export * from "./task-context-api.js";
 export * from "./trace-context-api.js";
 export * from "./apiClientManager-api.js";
@@ -44,6 +45,13 @@ export {
 export type { LogLevel } from "./logger/taskLogger.js";
 
 export { eventFilterMatches } from "../eventFilterMatches.js";
+export {
+  compileFilter,
+  evaluateFilter,
+  invalidateFilterCache,
+  clearFilterCache,
+} from "./events/filterEvaluator.js";
+export { compilePattern, matchesPattern, clearPatternCache } from "./events/patternMatcher.js";
 export {
   flattenAttributes,
   primitiveValueOrflattenedAttributes,

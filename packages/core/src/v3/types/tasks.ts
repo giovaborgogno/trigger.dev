@@ -35,6 +35,12 @@ export type Queue = QueueOptions;
 export type TaskSchema = Schema;
 export type { inferSchemaIn } from "./schemas.js";
 
+/** Minimal interface for an event definition used in task subscription */
+export interface EventSource<TPayload = any> {
+  readonly id: string;
+  readonly version: string;
+}
+
 export class SubtaskUnwrapError extends Error {
   public readonly taskId: string;
   public readonly runId: string;
@@ -397,6 +403,23 @@ export type TaskWithToolOptions<
   TInitOutput extends InitOutput = any,
 > = CommonTaskOptions<TIdentifier, inferToolParameters<TParameters>, TOutput, TInitOutput> & {
   parameters: TParameters;
+};
+
+/** Task options when subscribing to an event via `on` */
+export type TaskOptionsWithEvent<
+  TIdentifier extends string,
+  TPayload,
+  TOutput = unknown,
+  TInitOutput extends InitOutput = any,
+> = CommonTaskOptions<TIdentifier, TPayload, TOutput, TInitOutput> & {
+  /** The event to subscribe this task to */
+  on: EventSource<TPayload>;
+  /** Content-based filter — only receive events whose payload matches this filter */
+  filter?: import("../schemas/eventFilter.js").EventFilter;
+  /** Consumer group — within a group, only one task receives each event */
+  consumerGroup?: string;
+  /** Per-subscriber rate limit — controls how fast this task receives events */
+  consumerRateLimit?: { limit: number; window: string };
 };
 
 declare const __output: unique symbol;

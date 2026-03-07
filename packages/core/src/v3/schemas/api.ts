@@ -1624,6 +1624,302 @@ export const AppendToStreamResponseBody = z.object({
 });
 export type AppendToStreamResponseBody = z.infer<typeof AppendToStreamResponseBody>;
 
+// ---- Event publish schemas ----
+
+export const PublishEventRequestBody = z.object({
+  payload: z.unknown(),
+  options: z
+    .object({
+      idempotencyKey: z.string().max(256).optional(),
+      delay: z.string().or(z.coerce.date()).optional(),
+      tags: RunTags.optional(),
+      metadata: z.record(z.unknown()).optional(),
+      context: z.unknown().optional(),
+      orderingKey: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type PublishEventRequestBody = z.infer<typeof PublishEventRequestBody>;
+
+export const PublishEventResponseBody = z.object({
+  eventId: z.string(),
+  runs: z.array(
+    z.object({
+      taskIdentifier: z.string(),
+      runId: z.string(),
+    })
+  ),
+});
+
+export type PublishEventResponseBody = z.infer<typeof PublishEventResponseBody>;
+
+export const BatchPublishEventRequestBody = z.object({
+  items: z
+    .array(
+      z.object({
+        payload: z.unknown(),
+        options: z
+          .object({
+            idempotencyKey: z.string().max(256).optional(),
+            delay: z.string().or(z.coerce.date()).optional(),
+            tags: RunTags.optional(),
+            metadata: z.record(z.unknown()).optional(),
+            context: z.unknown().optional(),
+            orderingKey: z.string().optional(),
+          })
+          .optional(),
+      })
+    )
+    .max(100),
+});
+
+export type BatchPublishEventRequestBody = z.infer<typeof BatchPublishEventRequestBody>;
+
+export const BatchPublishEventResponseBody = z.object({
+  results: z.array(PublishEventResponseBody),
+});
+
+export type BatchPublishEventResponseBody = z.infer<typeof BatchPublishEventResponseBody>;
+
+export const PublishAndWaitEventRequestBody = z.object({
+  payload: z.unknown(),
+  parentRunId: z.string(),
+  options: z
+    .object({
+      idempotencyKey: z.string().max(256).optional(),
+      delay: z.string().or(z.coerce.date()).optional(),
+      tags: RunTags.optional(),
+      metadata: z.record(z.unknown()).optional(),
+      context: z.unknown().optional(),
+      orderingKey: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type PublishAndWaitEventRequestBody = z.infer<typeof PublishAndWaitEventRequestBody>;
+
+export const PublishAndWaitEventResponseBody = z.object({
+  eventId: z.string(),
+  runs: z.array(
+    z.object({
+      taskIdentifier: z.string(),
+      runId: z.string(),
+    })
+  ),
+});
+
+export type PublishAndWaitEventResponseBody = z.infer<typeof PublishAndWaitEventResponseBody>;
+
+// ---- Event discovery schemas ----
+
+export const EventListItem = z.object({
+  id: z.string(),
+  slug: z.string(),
+  version: z.string(),
+  description: z.string().nullable(),
+  hasSchema: z.boolean(),
+  deprecatedAt: z.coerce.date().nullable(),
+  subscriberCount: z.number(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export type EventListItem = z.infer<typeof EventListItem>;
+
+export const ListEventsResponseBody = z.object({
+  data: z.array(EventListItem),
+});
+
+export type ListEventsResponseBody = z.infer<typeof ListEventsResponseBody>;
+
+export const GetEventResponseBody = z.object({
+  id: z.string(),
+  slug: z.string(),
+  version: z.string(),
+  description: z.string().nullable(),
+  schema: z.unknown().nullable(),
+  deprecatedAt: z.coerce.date().nullable(),
+  deprecatedMessage: z.string().nullable(),
+  compatibleVersions: z.array(z.string()),
+  subscribers: z.array(
+    z.object({
+      taskSlug: z.string(),
+      enabled: z.boolean(),
+    })
+  ),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export type GetEventResponseBody = z.infer<typeof GetEventResponseBody>;
+
+export const GetEventSchemaResponseBody = z.object({
+  slug: z.string(),
+  version: z.string(),
+  schema: z.unknown().nullable(),
+});
+
+export type GetEventSchemaResponseBody = z.infer<typeof GetEventSchemaResponseBody>;
+
+export const EventHistoryItem = z.object({
+  eventId: z.string(),
+  eventType: z.string(),
+  payload: z.unknown(),
+  publishedAt: z.string(),
+  publisherRunId: z.string().optional(),
+  idempotencyKey: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  fanOutCount: z.number().int(),
+});
+
+export type EventHistoryItem = z.infer<typeof EventHistoryItem>;
+
+export const GetEventHistoryResponseBody = z.object({
+  data: z.array(EventHistoryItem),
+  pagination: z.object({
+    cursor: z.string().nullable(),
+    hasMore: z.boolean(),
+  }),
+});
+
+export type GetEventHistoryResponseBody = z.infer<typeof GetEventHistoryResponseBody>;
+
+export const ReplayEventsRequestBody = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  filter: z.unknown().optional(),
+  tasks: z.array(z.string()).optional(),
+  dryRun: z.boolean().optional(),
+});
+
+export type ReplayEventsRequestBody = z.infer<typeof ReplayEventsRequestBody>;
+
+export const ReplayEventsResponseBody = z.object({
+  replayedCount: z.number().int(),
+  skippedCount: z.number().int(),
+  dryRun: z.boolean(),
+  runs: z
+    .array(
+      z.object({
+        taskIdentifier: z.string(),
+        runId: z.string(),
+        sourceEventId: z.string(),
+      })
+    )
+    .optional(),
+});
+
+export type ReplayEventsResponseBody = z.infer<typeof ReplayEventsResponseBody>;
+
+export const DeadLetterEventItem = z.object({
+  id: z.string(),
+  friendlyId: z.string(),
+  eventType: z.string(),
+  payload: z.unknown(),
+  taskSlug: z.string(),
+  failedRunId: z.string(),
+  error: z.unknown().nullable(),
+  attemptCount: z.number().int(),
+  status: z.enum(["PENDING", "RETRIED", "DISCARDED"]),
+  sourceEventId: z.string().nullable(),
+  createdAt: z.string(),
+  processedAt: z.string().nullable(),
+});
+
+export type DeadLetterEventItem = z.infer<typeof DeadLetterEventItem>;
+
+export const ListDeadLetterEventsResponseBody = z.object({
+  data: z.array(DeadLetterEventItem),
+  pagination: z.object({
+    cursor: z.string().nullable(),
+    hasMore: z.boolean(),
+  }),
+});
+
+export type ListDeadLetterEventsResponseBody = z.infer<typeof ListDeadLetterEventsResponseBody>;
+
+export const RetryDeadLetterEventResponseBody = z.object({
+  id: z.string(),
+  status: z.string(),
+  runId: z.string().optional(),
+});
+
+export type RetryDeadLetterEventResponseBody = z.infer<typeof RetryDeadLetterEventResponseBody>;
+
+export const DiscardDeadLetterEventResponseBody = z.object({
+  id: z.string(),
+  status: z.string(),
+});
+
+export type DiscardDeadLetterEventResponseBody = z.infer<typeof DiscardDeadLetterEventResponseBody>;
+
+export const RetryAllDeadLetterEventsResponseBody = z.object({
+  retriedCount: z.number().int(),
+  failedCount: z.number().int(),
+});
+
+export type RetryAllDeadLetterEventsResponseBody = z.infer<
+  typeof RetryAllDeadLetterEventsResponseBody
+>;
+
+// ---- Event Stats schemas ----
+
+export const EventStatsTimeBucket = z.object({
+  timestamp: z.string(),
+  eventCount: z.number().int(),
+  fanOutCount: z.number().int(),
+});
+
+export type EventStatsTimeBucket = z.infer<typeof EventStatsTimeBucket>;
+
+export const GetEventStatsResponseBody = z.object({
+  eventType: z.string(),
+  period: z.string(),
+  buckets: z.array(EventStatsTimeBucket),
+  totals: z.object({
+    eventCount: z.number().int(),
+    fanOutCount: z.number().int(),
+  }),
+});
+
+export type GetEventStatsResponseBody = z.infer<typeof GetEventStatsResponseBody>;
+
+// ---- Event Metrics schemas ----
+
+export const EventMetricsSubscriber = z.object({
+  taskSlug: z.string(),
+  enabled: z.boolean(),
+  hasRateLimit: z.boolean(),
+  hasFilter: z.boolean(),
+  consumerGroup: z.string().nullable(),
+});
+
+export type EventMetricsSubscriber = z.infer<typeof EventMetricsSubscriber>;
+
+export const GetEventMetricsResponseBody = z.object({
+  eventType: z.string(),
+  subscribers: z.object({
+    total: z.number().int(),
+    active: z.number().int(),
+    disabled: z.number().int(),
+    list: z.array(EventMetricsSubscriber),
+  }),
+  dlq: z.object({
+    pending: z.number().int(),
+    retried: z.number().int(),
+    discarded: z.number().int(),
+  }),
+  rateLimit: z
+    .object({
+      limit: z.number().int(),
+      window: z.string(),
+    })
+    .nullable(),
+});
+
+export type GetEventMetricsResponseBody = z.infer<typeof GetEventMetricsResponseBody>;
+
 export const SendInputStreamResponseBody = z.object({
   ok: z.boolean(),
 });

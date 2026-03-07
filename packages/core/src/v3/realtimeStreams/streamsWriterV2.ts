@@ -136,7 +136,7 @@ export class StreamsWriterV2<T = any> implements StreamsWriter {
 
       const session = await stream.appendSession({
         maxInflightBytes: this.maxInflightBytes,
-      });
+      } as any);
 
       this.sessionWritable = session.writable;
 
@@ -152,7 +152,7 @@ export class StreamsWriterV2<T = any> implements StreamsWriter {
                 return;
               }
               // Convert each chunk to JSON string and wrap in AppendRecord
-              controller.enqueue(AppendRecord.string({ body: JSON.stringify({ data: chunk, id: nanoid(7) }) }));
+              controller.enqueue((AppendRecord as any).string({ body: JSON.stringify({ data: chunk, id: nanoid(7) }) }));
             },
           })
         )
@@ -169,9 +169,9 @@ export class StreamsWriterV2<T = any> implements StreamsWriter {
       const lastAcked = session.lastAckedPosition();
 
       if (lastAcked?.end) {
-        const recordsWritten = lastAcked.end.seqNum;
+        const recordsWritten = (lastAcked.end as any).seqNum;
         this.log(
-          `[S2MetadataStream] Written ${recordsWritten} records, ending at seqNum=${lastAcked.end.seqNum}`
+          `[S2MetadataStream] Written ${recordsWritten} records, ending at seqNum=${(lastAcked.end as any).seqNum}`
         );
       }
     } catch (error) {

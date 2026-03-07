@@ -1,5 +1,19 @@
-import { QueueManifest, TaskManifest, WorkerManifest } from "../schemas/index.js";
+import { EventManifest, QueueManifest, TaskManifest, WorkerManifest } from "../schemas/index.js";
 import { TaskMetadataWithFunctions, TaskSchema } from "../types/index.js";
+
+export interface EventMetadata {
+  id: string;
+  version: string;
+  description?: string;
+  /** Raw schema (Zod, etc.) stored for later conversion to JSON Schema */
+  rawSchema?: unknown;
+  /** Rate limit configuration */
+  rateLimit?: { limit: number; window: string };
+  /** Ordering configuration — enables per-key serialization with global concurrency limit */
+  ordering?: { concurrencyLimit?: number };
+  /** Dead letter queue configuration */
+  dlq?: { enabled?: boolean };
+}
 
 export interface ResourceCatalog {
   setCurrentFileContext(filePath: string, entryPoint: string): void;
@@ -14,4 +28,9 @@ export interface ResourceCatalog {
   registerQueueMetadata(queue: QueueManifest): void;
   listQueueManifests(): Array<QueueManifest>;
   getTaskSchema(id: string): TaskSchema | undefined;
+  registerEventMetadata(event: EventMetadata): void;
+  getEvent(id: string): EventMetadata | undefined;
+  getEventSchema(id: string): unknown | undefined;
+  listEventManifests(): Array<EventManifest>;
+  getTasksForEvent(eventId: string): Array<TaskMetadataWithFunctions>;
 }

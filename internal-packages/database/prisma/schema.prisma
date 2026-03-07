@@ -346,6 +346,8 @@ model RuntimeEnvironment {
   waitpointTags        WaitpointTag[]
   BulkActionGroup      BulkActionGroup[]
   customerQueries      CustomerQuery[]
+  eventSubscriptions   EventSubscription[]
+  deadLetterEvents     DeadLetterEvent[]
 
   @@unique([projectId, slug, orgMemberId])
   @@unique([projectId, shortcode])
@@ -417,6 +419,9 @@ model Project {
   onboardingData        Json?
   taskScheduleInstances TaskScheduleInstance[]
   metricsDashboards     MetricsDashboard[]
+  eventDefinitions      EventDefinition[]
+  eventSubscriptions    EventSubscription[]
+  deadLetterEvents      DeadLetterEvent[]
 }
 
 enum ProjectVersion {
@@ -491,11 +496,12 @@ model BackgroundWorker {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tasks      BackgroundWorkerTask[]
-  attempts   TaskRunAttempt[]
-  lockedRuns TaskRun[]
-  files      BackgroundWorkerFile[]
-  queues     TaskQueue[]
+  tasks              BackgroundWorkerTask[]
+  attempts           TaskRunAttempt[]
+  lockedRuns         TaskRun[]
+  files              BackgroundWorkerFile[]
+  queues             TaskQueue[]
+  eventSubscriptions EventSubscription[]
 
   deployment WorkerDeployment?
 
@@ -573,6 +579,8 @@ model BackgroundWorkerTask {
 
   payloadSchema Json?
 
+  onEventSlug String?
+
   @@unique([workerId, slug])
   // Quick lookup of task identifiers
   @@index([projectId, slug])
@@ -582,6 +590,106 @@ model BackgroundWorkerTask {
 enum TaskTriggerSource {
   STANDARD
   SCHEDULED
+}
+
+model EventDefinition {
+  id      String @id @default(cuid())
+  slug    String // "order.created"
+  version String @default("1.0")
+
+  description String?
+  schema      Json? // JSON Schema of the payload
+
+  // Schema versioning (Phase 1)
+  compatibleVersions String[]  @default([])
+  deprecatedAt       DateTime?
+  deprecatedMessage  String?
+
+  // Rate limiting (Phase 7) — JSON config e.g. { "limit": 100, "window": "1m" }
+  rateLimit Json?
+
+  // DLQ configuration (Phase 4.4) — JSON config e.g. { "enabled": false }
+  dlqConfig Json?
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  projectId String
+
+  subscriptions EventSubscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, slug, version])
+  @@index([projectId, slug])
+}
+
+model EventSubscription {
+  id String @id @default(cuid())
+
+  eventDefinition   EventDefinition @relation(fields: [eventDefinitionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  eventDefinitionId String
+
+  taskSlug String // "send-confirmation"
+
+  environment   RuntimeEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  environmentId String
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  projectId String
+
+  worker   BackgroundWorker @relation(fields: [workerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workerId String
+
+  filter        Json?    // EventFilter (Phase 2)
+  pattern       String?  // Wildcard pattern (Phase 2)
+  consumerGroup String?  // Consumer group name (Phase 5)
+  rateLimit     Json?    // Per-subscriber rate limit { limit, window }
+  enabled       Boolean  @default(true)
+  priority      Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([eventDefinitionId, taskSlug, environmentId])
+  @@index([eventDefinitionId, environmentId, enabled])
+  @@index([projectId, environmentId, enabled])
+}
+
+enum DeadLetterStatus {
+  PENDING
+  RETRIED
+  DISCARDED
+}
+
+model DeadLetterEvent {
+  id         String @id @default(cuid())
+  friendlyId String @unique
+
+  eventType   String // "order.created"
+  payload     Json
+  payloadType String @default("application/json")
+
+  taskSlug    String // consumer that failed
+  failedRun   TaskRun @relation("DeadLetterRun", fields: [failedRunId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  failedRunId String
+
+  error        Json? // last error
+  attemptCount Int   // how many attempts there were
+
+  status      DeadLetterStatus @default(PENDING)
+
+  sourceEventId String? // reference to event_log event_id
+
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  projectId     String
+  environment   RuntimeEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  environmentId String
+
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([projectId, environmentId, status])
+  @@index([eventType, environmentId])
 }
 
 model TaskRun {
@@ -712,6 +820,8 @@ model TaskRun {
 
   scheduleInstanceId String?
   scheduleId         String?
+
+  deadLetterEvents           DeadLetterEvent[] @relation("DeadLetterRun")
 
   sourceBulkActionItems      BulkActionItem[] @relation("SourceActionItemRun")
   destinationBulkActionItems BulkActionItem[] @relation("DestinationActionItemRun")

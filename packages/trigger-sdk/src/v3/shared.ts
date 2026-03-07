@@ -78,7 +78,9 @@ import type {
   Task,
   TaskBatchOutputHandle,
   TaskIdentifier,
+  EventSource,
   TaskOptions,
+  TaskOptionsWithEvent,
   TaskOptionsWithSchema,
   TaskOutput,
   TaskOutputHandle,
@@ -103,6 +105,7 @@ export type {
   BatchResult,
   BatchRunHandle,
   BatchTriggerOptions,
+  EventSource,
   Queue,
   RunHandle,
   RunHandleOutput,
@@ -113,6 +116,7 @@ export type {
   TaskFromIdentifier,
   TaskIdentifier,
   TaskOptions,
+  TaskOptionsWithEvent,
   TaskOutput,
   TaskOutputHandle,
   TaskPayload,
@@ -136,6 +140,16 @@ export function queue(options: QueueOptions): Queue {
 
   return options;
 }
+
+// Overload: when subscribing to an event via `on`
+export function createTask<
+  TIdentifier extends string,
+  TPayload,
+  TOutput = unknown,
+  TInitOutput extends InitOutput = any,
+>(
+  params: TaskOptionsWithEvent<TIdentifier, TPayload, TOutput, TInitOutput>
+): Task<TIdentifier, TPayload, TOutput>;
 
 // Overload: when payloadSchema is provided, payload type should be any
 export function createTask<
@@ -165,6 +179,7 @@ export function createTask<
   params:
     | TaskOptions<TIdentifier, TInput, TOutput, TInitOutput>
     | TaskOptionsWithSchema<TIdentifier, TOutput, TInitOutput>
+    | TaskOptionsWithEvent<TIdentifier, TInput, TOutput, TInitOutput>
 ): Task<TIdentifier, TInput, TOutput> | Task<TIdentifier, any, TOutput> {
   const task: Task<TIdentifier, TInput, TOutput> = {
     id: params.id,
@@ -229,6 +244,14 @@ export function createTask<
 
   registerTaskLifecycleHooks(params.id, params);
 
+  // Extract onEvent, optional filter, and optional pattern from the params if this task subscribes to an event
+  const eventSource = "on" in params && params.on ? params.on as EventSource & { pattern?: string } : undefined;
+  const onEvent = eventSource?.id;
+  const onEventFilter = "filter" in params && params.filter ? params.filter : undefined;
+  const onEventPattern = eventSource && "pattern" in eventSource ? eventSource.pattern : undefined;
+  const onEventConsumerGroup = "consumerGroup" in params && params.consumerGroup ? params.consumerGroup as string : undefined;
+  const onEventConsumerRateLimit = "consumerRateLimit" in params && params.consumerRateLimit ? params.consumerRateLimit as { limit: number; window: string } : undefined;
+
   resourceCatalog.registerTaskMetadata({
     id: params.id,
     description: params.description,
@@ -237,6 +260,11 @@ export function createTask<
     machine: typeof params.machine === "string" ? { preset: params.machine } : params.machine,
     maxDuration: params.maxDuration,
     payloadSchema: params.jsonSchema,
+    onEvent,
+    onEventFilter,
+    onEventPattern,
+    onEventConsumerGroup,
+    onEventConsumerRateLimit,
     fns: {
       run: params.run,
     },

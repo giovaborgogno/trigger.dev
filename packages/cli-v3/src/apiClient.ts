@@ -40,6 +40,12 @@ import {
   ApiBranchListResponseBody,
   GenerateRegistryCredentialsResponseBody,
   RemoteBuildProviderStatusResponseBody,
+  ListEventsResponseBody,
+  PublishEventResponseBody,
+  GetEventHistoryResponseBody,
+  ReplayEventsResponseBody,
+  ListDeadLetterEventsResponseBody,
+  RetryDeadLetterEventResponseBody,
 } from "@trigger.dev/core/v3";
 import {
   WorkloadDebugLogRequestBody,
@@ -545,6 +551,180 @@ export class CliApiClient {
       headers: this.getHeaders(),
       body: JSON.stringify(body ?? {}),
     });
+  }
+
+  async listEvents(projectRef: string) {
+    if (!this.accessToken) {
+      throw new Error("listEvents: No access token");
+    }
+
+    return wrapZodFetch(ListEventsResponseBody, `${this.apiURL}/api/v1/events`, {
+      method: "GET",
+      headers: {
+        ...this.getHeaders(),
+        "x-trigger-project-ref": projectRef,
+      },
+    });
+  }
+
+  async publishEvent(
+    projectRef: string,
+    eventId: string,
+    payload: unknown,
+    options?: {
+      idempotencyKey?: string;
+      delay?: string;
+      tags?: string[];
+      orderingKey?: string;
+    }
+  ) {
+    if (!this.accessToken) {
+      throw new Error("publishEvent: No access token");
+    }
+
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return wrapZodFetch(
+      PublishEventResponseBody,
+      `${this.apiURL}/api/v1/events/${encodedEventId}/publish`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "x-trigger-project-ref": projectRef,
+        },
+        body: JSON.stringify({
+          payload,
+          options: options
+            ? {
+                idempotencyKey: options.idempotencyKey,
+                delay: options.delay,
+                tags: options.tags,
+                orderingKey: options.orderingKey,
+              }
+            : undefined,
+        }),
+      }
+    );
+  }
+
+  async getEventHistory(
+    projectRef: string,
+    eventId: string,
+    options?: {
+      from?: string;
+      to?: string;
+      limit?: number;
+      cursor?: string;
+    }
+  ) {
+    if (!this.accessToken) {
+      throw new Error("getEventHistory: No access token");
+    }
+
+    const encodedEventId = encodeURIComponent(eventId);
+    const params = new URLSearchParams();
+    if (options?.from) params.set("from", options.from);
+    if (options?.to) params.set("to", options.to);
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.cursor) params.set("cursor", options.cursor);
+    const qs = params.toString();
+
+    return wrapZodFetch(
+      GetEventHistoryResponseBody,
+      `${this.apiURL}/api/v1/events/${encodedEventId}/history${qs ? `?${qs}` : ""}`,
+      {
+        method: "GET",
+        headers: {
+          ...this.getHeaders(),
+          "x-trigger-project-ref": projectRef,
+        },
+      }
+    );
+  }
+
+  async replayEvents(
+    projectRef: string,
+    eventId: string,
+    body: {
+      from: string;
+      to: string;
+      filter?: unknown;
+      tasks?: string[];
+      dryRun?: boolean;
+    }
+  ) {
+    if (!this.accessToken) {
+      throw new Error("replayEvents: No access token");
+    }
+
+    const encodedEventId = encodeURIComponent(eventId);
+
+    return wrapZodFetch(
+      ReplayEventsResponseBody,
+      `${this.apiURL}/api/v1/events/${encodedEventId}/replay`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "x-trigger-project-ref": projectRef,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+  }
+
+  async listDeadLetterEvents(
+    projectRef: string,
+    options?: {
+      eventType?: string;
+      status?: string;
+      limit?: number;
+      cursor?: string;
+    }
+  ) {
+    if (!this.accessToken) {
+      throw new Error("listDeadLetterEvents: No access token");
+    }
+
+    const params = new URLSearchParams();
+    if (options?.eventType) params.set("eventType", options.eventType);
+    if (options?.status) params.set("status", options.status);
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.cursor) params.set("cursor", options.cursor);
+    const qs = params.toString();
+
+    return wrapZodFetch(
+      ListDeadLetterEventsResponseBody,
+      `${this.apiURL}/api/v1/events/dlq${qs ? `?${qs}` : ""}`,
+      {
+        method: "GET",
+        headers: {
+          ...this.getHeaders(),
+          "x-trigger-project-ref": projectRef,
+        },
+      }
+    );
+  }
+
+  async retryDeadLetterEvent(projectRef: string, id: string) {
+    if (!this.accessToken) {
+      throw new Error("retryDeadLetterEvent: No access token");
+    }
+
+    const encodedId = encodeURIComponent(id);
+
+    return wrapZodFetch(
+      RetryDeadLetterEventResponseBody,
+      `${this.apiURL}/api/v1/events/dlq/${encodedId}/retry`,
+      {
+        method: "POST",
+        headers: {
+          ...this.getHeaders(),
+          "x-trigger-project-ref": projectRef,
+        },
+      }
+    );
   }
 
   get dev() {
