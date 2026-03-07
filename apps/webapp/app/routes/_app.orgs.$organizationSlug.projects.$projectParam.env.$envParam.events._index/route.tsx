@@ -1,18 +1,19 @@
 import { BoltIcon } from "@heroicons/react/20/solid";
-import { BookOpenIcon, MagnifyingGlassIcon } from "@heroicons/react/24/solid";
+import { ArchiveBoxXMarkIcon, BookOpenIcon, MagnifyingGlassIcon } from "@heroicons/react/24/solid";
 import { type MetaFunction, useSearchParams } from "@remix-run/react";
 import { type LoaderFunctionArgs } from "@remix-run/server-runtime";
 import { typedjson, useTypedLoaderData } from "remix-typedjson";
 import { z } from "zod";
+import { InlineCode } from "~/components/code/InlineCode";
 import { MainCenteredContainer, PageBody, PageContainer } from "~/components/layout/AppLayout";
 import { LinkButton } from "~/components/primitives/Buttons";
-import { InlineCode } from "~/components/code/InlineCode";
 import { DateTime } from "~/components/primitives/DateTime";
 import { InfoPanel } from "~/components/primitives/InfoPanel";
 import { Input } from "~/components/primitives/Input";
 import { NavBar, PageAccessories, PageTitle } from "~/components/primitives/PageHeader";
 import { PaginationControls } from "~/components/primitives/Pagination";
 import { Paragraph } from "~/components/primitives/Paragraph";
+import { Switch } from "~/components/primitives/Switch";
 import {
   Table,
   TableBlankRow,
@@ -38,6 +39,15 @@ import {
   v3EventsDlqPath,
   v3EventsPath,
 } from "~/utils/pathBuilder";
+
+function formatRateLimit(rl: unknown): string {
+  if (!rl || typeof rl !== "object") return "–";
+  const obj = rl as Record<string, unknown>;
+  if (typeof obj.limit === "number" && typeof obj.window === "string") {
+    return `${obj.limit}/${obj.window}`;
+  }
+  return "–";
+}
 
 export const meta: MetaFunction = () => {
   return [{ title: `Events | Trigger.dev` }];
@@ -91,22 +101,29 @@ export default function Page() {
       <NavBar>
         <PageTitle title="Events" />
         <PageAccessories>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded bg-charcoal-750 p-0.5">
             <LinkButton
               to={v3EventsPath(organization, project, environment)}
-              variant={
-                !searchParams.has("_dlq") ? "tertiary/small" : "minimal/small"
-              }
+              variant="tertiary/small"
+              LeadingIcon={BoltIcon}
             >
               Events
             </LinkButton>
             <LinkButton
               to={v3EventsDlqPath(organization, project, environment)}
               variant="minimal/small"
+              LeadingIcon={ArchiveBoxXMarkIcon}
             >
               Dead Letter Queue
             </LinkButton>
           </div>
+          <LinkButton
+            variant="docs/small"
+            LeadingIcon={BookOpenIcon}
+            to={docsPath("v3/events")}
+          >
+            Event docs
+          </LinkButton>
         </PageAccessories>
       </NavBar>
       <PageBody>
@@ -128,8 +145,8 @@ export default function Page() {
               }
             >
               <Paragraph spacing variant="small">
-                Define events with <InlineCode>createEvent()</InlineCode> in your
-                code and subscribe tasks using the <InlineCode>on</InlineCode>{" "}
+                Define events with <InlineCode>event()</InlineCode> in your code
+                and subscribe tasks using the <InlineCode>on</InlineCode>{" "}
                 option.
               </Paragraph>
             </InfoPanel>
@@ -155,25 +172,24 @@ export default function Page() {
                   }}
                 />
               </div>
-              <label className="flex items-center gap-1.5 text-xs text-text-dimmed">
-                <input
-                  type="checkbox"
-                  checked={searchParams.get("showDeprecated") === "true"}
-                  onChange={(e) => {
-                    const params = new URLSearchParams(searchParams);
-                    if (e.target.checked) {
-                      params.set("showDeprecated", "true");
-                    } else {
-                      params.delete("showDeprecated");
-                    }
-                    params.delete("page");
-                    setSearchParams(params);
-                  }}
-                />
-                Show deprecated
-              </label>
+              <Switch
+                variant="small"
+                label="Show deprecated"
+                labelPosition="right"
+                checked={searchParams.get("showDeprecated") === "true"}
+                onCheckedChange={(checked) => {
+                  const params = new URLSearchParams(searchParams);
+                  if (checked) {
+                    params.set("showDeprecated", "true");
+                  } else {
+                    params.delete("showDeprecated");
+                  }
+                  params.delete("page");
+                  setSearchParams(params);
+                }}
+              />
             </div>
-            <Table>
+            <Table variant="bright">
               <TableHeader>
                 <TableRow>
                   <TableHeaderCell>Event</TableHeaderCell>
@@ -210,9 +226,7 @@ export default function Page() {
                           {event.recentEventCount.toLocaleString()}
                         </TableCell>
                         <TableCell to={path} className={cellClass}>
-                          {event.rateLimit
-                            ? `${(event.rateLimit as any).limit}/${(event.rateLimit as any).window}`
-                            : "–"}
+                          {formatRateLimit(event.rateLimit)}
                         </TableCell>
                         <TableCell to={path}>
                           <EnabledStatus enabled={!event.isDeprecated} />

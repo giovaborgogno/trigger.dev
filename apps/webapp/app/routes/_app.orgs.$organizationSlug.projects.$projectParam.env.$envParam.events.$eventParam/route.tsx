@@ -1,5 +1,9 @@
-import { ArrowLeftIcon } from "@heroicons/react/20/solid";
-import { type ActionFunctionArgs, type LoaderFunctionArgs } from "@remix-run/server-runtime";
+import { ArrowPathIcon } from "@heroicons/react/20/solid";
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  json,
+} from "@remix-run/server-runtime";
 import { type MetaFunction, Form, useSearchParams, useNavigation, useFetcher } from "@remix-run/react";
 import { useState } from "react";
 import { typedjson, useTypedLoaderData } from "remix-typedjson";
@@ -7,9 +11,10 @@ import { z } from "zod";
 import type { ChartConfig } from "~/components/primitives/charts/Chart";
 import { Chart } from "~/components/primitives/charts/ChartCompound";
 import { CodeBlock } from "~/components/code/CodeBlock";
-import { MainCenteredContainer, PageBody, PageContainer } from "~/components/layout/AppLayout";
+import { PageBody, PageContainer } from "~/components/layout/AppLayout";
 import { Badge } from "~/components/primitives/Badge";
-import { Button, LinkButton } from "~/components/primitives/Buttons";
+import { Button } from "~/components/primitives/Buttons";
+import { Callout } from "~/components/primitives/Callout";
 import { DateTime } from "~/components/primitives/DateTime";
 import {
   Dialog,
@@ -20,20 +25,22 @@ import {
   DialogTrigger,
 } from "~/components/primitives/Dialog";
 import { Header3 } from "~/components/primitives/Headers";
-import { InfoPanel } from "~/components/primitives/InfoPanel";
 import { Input } from "~/components/primitives/Input";
-import { NavBar, PageAccessories, PageTitle } from "~/components/primitives/PageHeader";
+import { NavBar, PageTitle } from "~/components/primitives/PageHeader";
 import { Paragraph } from "~/components/primitives/Paragraph";
+import { PopoverMenuItem } from "~/components/primitives/Popover";
 import * as Property from "~/components/primitives/PropertyTable";
 import {
   Table,
   TableBlankRow,
   TableBody,
   TableCell,
+  TableCellMenu,
   TableHeader,
   TableHeaderCell,
   TableRow,
 } from "~/components/primitives/Table";
+import { TextLink } from "~/components/primitives/TextLink";
 import { EnabledStatus } from "~/components/runs/v3/EnabledStatus";
 import { useEnvironment } from "~/hooks/useEnvironment";
 import { useOrganization } from "~/hooks/useOrganizations";
@@ -50,10 +57,24 @@ import { requireUserId } from "~/services/session.server";
 import { ServiceValidationError } from "~/v3/services/baseService.server";
 import { writeEventLog } from "~/v3/services/events/eventLogWriter.server";
 import { ReplayEventsService } from "~/v3/services/events/replayEvents.server";
+import { PublishEventService } from "~/v3/services/events/publishEvent.server";
 import { v3EventParams, v3EventsPath, v3RunPath } from "~/utils/pathBuilder";
 
-export const meta: MetaFunction = () => {
-  return [{ title: `Event Detail | Trigger.dev` }];
+function formatRateLimit(rl: unknown): string {
+  if (!rl || typeof rl !== "object") return "–";
+  const obj = rl as Record<string, unknown>;
+  if (typeof obj.limit === "number" && typeof obj.window === "string") {
+    return `${obj.limit}/${obj.window}`;
+  }
+  return "–";
+}
+
+export const meta: MetaFunction<typeof loader> = ({ data, params }) => {
+  const eventSlug = params.eventParam ? decodeURIComponent(params.eventParam) : undefined;
+  const title = eventSlug
+    ? `${eventSlug} | Events | Trigger.dev`
+    : `Event Detail | Trigger.dev`;
+  return [{ title }];
 };
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -92,9 +113,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   return typedjson(data);
 };
-
-import { json } from "@remix-run/server-runtime";
-import { PublishEventService } from "~/v3/services/events/publishEvent.server";
 
 const ActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("replay"), from: z.string(), to: z.string() }),
@@ -199,16 +217,13 @@ export default function Page() {
   return (
     <PageContainer>
       <NavBar>
-        <PageTitle title={event.slug} />
-        <PageAccessories>
-          <LinkButton
-            to={v3EventsPath(organization, project, environment)}
-            variant="minimal/small"
-            LeadingIcon={ArrowLeftIcon}
-          >
-            All Events
-          </LinkButton>
-        </PageAccessories>
+        <PageTitle
+          title={event.slug}
+          backButton={{
+            to: v3EventsPath(organization, project, environment),
+            text: "Events",
+          }}
+        />
       </NavBar>
       <PageBody scrollable>
         <div className="flex flex-col gap-6">
@@ -232,7 +247,7 @@ export default function Page() {
               <Property.Item>
                 <Property.Label>Rate Limit</Property.Label>
                 <Property.Value>
-                  {(event.rateLimit as any).limit}/{(event.rateLimit as any).window}
+                  {formatRateLimit(event.rateLimit)}
                 </Property.Value>
               </Property.Item>
             )}
@@ -279,6 +294,8 @@ export default function Page() {
                 code={JSON.stringify(event.schema, null, 2)}
                 language="json"
                 showCopyButton
+                maxLines={20}
+                showLineNumbers
               />
             </div>
           )}
@@ -287,7 +304,7 @@ export default function Page() {
           <div>
             <div className="flex items-center justify-between">
               <Header3 spacing>Event Activity</Header3>
-              <div className="flex gap-1">
+              <div className="flex gap-0.5 rounded bg-charcoal-750 p-0.5">
                 {periods.map((p) => (
                   <Button
                     key={p}
@@ -315,13 +332,17 @@ export default function Page() {
                 <Chart.Bar stackId="a" />
               </Chart.Root>
             ) : (
-              <Paragraph variant="small" className="text-text-dimmed">
+              <Callout variant="info">
                 No event activity in the selected period.
-              </Paragraph>
+              </Callout>
             )}
-            <div className="mt-2 flex gap-4 text-xs text-text-dimmed">
-              <span>Total events: {stats.totals.eventCount.toLocaleString()}</span>
-              <span>Total fan-out: {stats.totals.totalFanOut.toLocaleString()}</span>
+            <div className="mt-2 flex gap-2">
+              <Badge variant="extra-small">
+                {stats.totals.eventCount.toLocaleString()} events
+              </Badge>
+              <Badge variant="extra-small">
+                {stats.totals.totalFanOut.toLocaleString()} fan-out
+              </Badge>
             </div>
           </div>
 
@@ -364,9 +385,7 @@ export default function Page() {
                       <TableCell>{sub.pattern ?? "–"}</TableCell>
                       <TableCell>{sub.consumerGroup ?? "–"}</TableCell>
                       <TableCell>
-                        {sub.rateLimit
-                          ? `${(sub.rateLimit as any).limit}/${(sub.rateLimit as any).window}`
-                          : "–"}
+                        {formatRateLimit(sub.rateLimit)}
                       </TableCell>
                       <TableCell>
                         <EnabledStatus enabled={sub.enabled} />
@@ -387,11 +406,12 @@ export default function Page() {
                 No recent events recorded.
               </Paragraph>
             ) : (
-              <div className="flex flex-col gap-2">
-                {recentHistory.map((entry) => (
-                  <RecentEventRow key={entry.eventId} entry={entry} eventSlug={event.slug} />
-                ))}
-              </div>
+              <RecentEventsTable
+                entries={recentHistory}
+                organization={organization}
+                project={project}
+                environment={environment}
+              />
             )}
           </div>
 
@@ -446,90 +466,152 @@ export default function Page() {
   );
 }
 
-function RecentEventRow({
-  entry,
-  eventSlug,
+type RecentEntry = {
+  eventId: string;
+  publishedAt: string;
+  fanOutCount: number;
+  payload: unknown;
+  tags?: string[];
+  publisherRunId?: string;
+};
+
+function RecentEventsTable({
+  entries,
+  organization,
+  project,
+  environment,
 }: {
-  entry: {
-    eventId: string;
-    publishedAt: string;
-    fanOutCount: number;
-    payload: unknown;
-    tags?: string[];
-    publisherRunId?: string;
-  };
-  eventSlug: string;
+  entries: RecentEntry[];
+  organization: { slug: string };
+  project: { slug: string };
+  environment: { slug: string };
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const fetcher = useFetcher();
-  const isReplaying = fetcher.state !== "idle";
-  const replayResult = fetcher.data as
-    | { success: true; eventId: string; runs: number }
-    | { success: false; error: string }
-    | undefined;
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <div className="rounded border border-charcoal-700 bg-charcoal-850">
-      <div
-        className="flex cursor-pointer items-center gap-4 px-3 py-2 text-xs hover:bg-charcoal-800"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="w-5 text-text-dimmed">{expanded ? "▼" : "▶"}</span>
-        <span className="w-48 truncate font-mono text-text-dimmed">
-          {entry.eventId}
-        </span>
-        <span className="w-44">
-          <DateTime date={new Date(entry.publishedAt)} />
-        </span>
-        <span className="w-16 text-text-dimmed">
-          {entry.fanOutCount} fan-out
-        </span>
-        {entry.tags && entry.tags.length > 0 && (
-          <div className="flex gap-1">
-            {entry.tags.map((tag) => (
-              <Badge key={tag} variant="extra-small">
-                {tag}
-              </Badge>
-            ))}
-          </div>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          {replayResult?.success && (
-            <span className="text-success">Replayed</span>
-          )}
-          <Button
-            variant="minimal/small"
-            disabled={isReplaying}
-            onClick={(e) => {
-              e.stopPropagation();
-              fetcher.submit(
-                {
-                  action: "replay-single",
-                  payload: JSON.stringify(entry.payload),
-                },
-                { method: "post" }
-              );
-            }}
-          >
-            {isReplaying ? "Replaying..." : "Replay"}
-          </Button>
-        </div>
-      </div>
-      {expanded && (
-        <div className="border-t border-charcoal-700 px-3 py-2">
-          <div className="mb-1 text-xs font-medium text-text-dimmed">Payload</div>
-          <CodeBlock
-            code={JSON.stringify(entry.payload, null, 2)}
-            language="json"
-            showCopyButton
+    <Table variant="bright">
+      <TableHeader>
+        <TableRow>
+          <TableHeaderCell>Event ID</TableHeaderCell>
+          <TableHeaderCell>Published</TableHeaderCell>
+          <TableHeaderCell>Fan-out</TableHeaderCell>
+          <TableHeaderCell>Tags</TableHeaderCell>
+          <TableHeaderCell>Publisher Run</TableHeaderCell>
+          <TableHeaderCell alignment="right">Actions</TableHeaderCell>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {entries.map((entry) => (
+          <RecentEventTableRow
+            key={entry.eventId}
+            entry={entry}
+            isExpanded={expandedId === entry.eventId}
+            onToggle={() =>
+              setExpandedId(expandedId === entry.eventId ? null : entry.eventId)
+            }
+            organization={organization}
+            project={project}
+            environment={environment}
           />
-          {entry.publisherRunId && (
-            <div className="mt-2 text-xs text-text-dimmed">
-              Publisher Run: <span className="font-mono">{entry.publisherRunId}</span>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function RecentEventTableRow({
+  entry,
+  isExpanded,
+  onToggle,
+  organization,
+  project,
+  environment,
+}: {
+  entry: RecentEntry;
+  isExpanded: boolean;
+  onToggle: () => void;
+  organization: { slug: string };
+  project: { slug: string };
+  environment: { slug: string };
+}) {
+  const fetcher = useFetcher();
+  const isReplaying = fetcher.state !== "idle";
+
+  return (
+    <>
+      <TableRow>
+        <TableCell onClick={onToggle} className="cursor-pointer">
+          <span className="font-mono text-text-dimmed">
+            {isExpanded ? "▼ " : "▶ "}
+            {entry.eventId}
+          </span>
+        </TableCell>
+        <TableCell>
+          <DateTime date={new Date(entry.publishedAt)} />
+        </TableCell>
+        <TableCell>{entry.fanOutCount}</TableCell>
+        <TableCell>
+          {entry.tags && entry.tags.length > 0 ? (
+            <div className="flex gap-1">
+              {entry.tags.map((tag) => (
+                <Badge key={tag} variant="extra-small">
+                  {tag}
+                </Badge>
+              ))}
             </div>
+          ) : (
+            "–"
           )}
-        </div>
+        </TableCell>
+        <TableCell>
+          {entry.publisherRunId ? (
+            <TextLink
+              to={v3RunPath(organization, project, environment, {
+                friendlyId: entry.publisherRunId,
+              })}
+              className="text-xs"
+            >
+              {entry.publisherRunId}
+            </TextLink>
+          ) : (
+            "–"
+          )}
+        </TableCell>
+        <TableCellMenu
+          popoverContent={
+            <PopoverMenuItem
+              icon={ArrowPathIcon}
+              title={isReplaying ? "Replaying..." : "Replay"}
+              disabled={isReplaying}
+              onClick={() => {
+                fetcher.submit(
+                  {
+                    action: "replay-single",
+                    payload: JSON.stringify(entry.payload),
+                  },
+                  { method: "post" }
+                );
+              }}
+            />
+          }
+        />
+      </TableRow>
+      {isExpanded && (
+        <TableRow>
+          <TableCell colSpan={6}>
+            <div className="py-2">
+              <div className="mb-1 text-xs font-medium text-text-dimmed">
+                Payload
+              </div>
+              <CodeBlock
+                code={JSON.stringify(entry.payload, null, 2)}
+                language="json"
+                showCopyButton
+              />
+            </div>
+          </TableCell>
+        </TableRow>
       )}
-    </div>
+    </>
   );
 }

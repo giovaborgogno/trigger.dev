@@ -1,4 +1,10 @@
-import { BoltIcon } from "@heroicons/react/20/solid";
+import {
+  ArrowPathIcon,
+  BoltIcon,
+  CheckCircleIcon,
+  TrashIcon,
+} from "@heroicons/react/20/solid";
+import { ArchiveBoxXMarkIcon, BookOpenIcon } from "@heroicons/react/24/solid";
 import { type MetaFunction, useFetcher, useSearchParams } from "@remix-run/react";
 import { type LoaderFunctionArgs } from "@remix-run/server-runtime";
 import { typedjson, useTypedLoaderData } from "remix-typedjson";
@@ -19,11 +25,17 @@ import {
 import { InfoPanel } from "~/components/primitives/InfoPanel";
 import { NavBar, PageAccessories, PageTitle } from "~/components/primitives/PageHeader";
 import { Paragraph } from "~/components/primitives/Paragraph";
+import { PopoverMenuItem } from "~/components/primitives/Popover";
+import {
+  Select,
+  SelectItem,
+} from "~/components/primitives/Select";
 import {
   Table,
   TableBlankRow,
   TableBody,
   TableCell,
+  TableCellMenu,
   TableHeader,
   TableHeaderCell,
   TableRow,
@@ -38,6 +50,7 @@ import { findEnvironmentBySlug } from "~/models/runtimeEnvironment.server";
 import { DeadLetterListPresenter } from "~/presenters/v3/DeadLetterListPresenter.server";
 import { requireUserId } from "~/services/session.server";
 import {
+  docsPath,
   EnvironmentParamSchema,
   v3EventsDlqPath,
   v3EventsPath,
@@ -86,7 +99,7 @@ function DeadLetterStatusBadge({
   status: "PENDING" | "RETRIED" | "DISCARDED";
 }) {
   const config = {
-    PENDING: { label: "Pending", className: "text-warning" },
+    PENDING: { label: "Pending", className: "text-pending" },
     RETRIED: { label: "Retried", className: "text-success" },
     DISCARDED: { label: "Discarded", className: "text-text-dimmed" },
   }[status];
@@ -123,20 +136,29 @@ export default function Page() {
       <NavBar>
         <PageTitle title="Dead Letter Queue" />
         <PageAccessories>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded bg-charcoal-750 p-0.5">
             <LinkButton
               to={v3EventsPath(organization, project, environment)}
               variant="minimal/small"
+              LeadingIcon={BoltIcon}
             >
               Events
             </LinkButton>
             <LinkButton
               to={v3EventsDlqPath(organization, project, environment)}
               variant="tertiary/small"
+              LeadingIcon={ArchiveBoxXMarkIcon}
             >
               Dead Letter Queue
             </LinkButton>
           </div>
+          <LinkButton
+            variant="docs/small"
+            LeadingIcon={BookOpenIcon}
+            to={docsPath("v3/events")}
+          >
+            Event docs
+          </LinkButton>
         </PageAccessories>
       </NavBar>
       <PageBody>
@@ -144,7 +166,7 @@ export default function Page() {
           <MainCenteredContainer>
             <InfoPanel
               title="Dead letter queue is empty"
-              icon={BoltIcon}
+              icon={CheckCircleIcon}
               iconClassName="text-success"
               panelClassName="max-w-full"
             >
@@ -157,47 +179,57 @@ export default function Page() {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <select
-                  className="rounded border border-charcoal-700 bg-charcoal-800 px-2 py-1 text-xs text-text-bright"
+                <Select
+                  variant="tertiary/small"
                   value={currentStatus}
-                  onChange={(e) => {
+                  setValue={(v) => {
+                    const val = v as string;
                     const params = new URLSearchParams(searchParams);
-                    if (e.target.value) {
-                      params.set("status", e.target.value);
+                    if (val) {
+                      params.set("status", val);
                     } else {
                       params.delete("status");
                     }
                     params.delete("cursor");
                     setSearchParams(params);
                   }}
+                  text={
+                    currentStatus
+                      ? { PENDING: "Pending", RETRIED: "Retried", DISCARDED: "Discarded" }[
+                          currentStatus
+                        ]
+                      : "All statuses"
+                  }
                 >
-                  <option value="">All statuses</option>
-                  <option value="PENDING">Pending</option>
-                  <option value="RETRIED">Retried</option>
-                  <option value="DISCARDED">Discarded</option>
-                </select>
+                  <SelectItem value="">All statuses</SelectItem>
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="RETRIED">Retried</SelectItem>
+                  <SelectItem value="DISCARDED">Discarded</SelectItem>
+                </Select>
                 {eventTypes.length > 0 && (
-                  <select
-                    className="rounded border border-charcoal-700 bg-charcoal-800 px-2 py-1 text-xs text-text-bright"
+                  <Select
+                    variant="tertiary/small"
                     value={currentEventType}
-                    onChange={(e) => {
+                    setValue={(v) => {
+                      const val = v as string;
                       const params = new URLSearchParams(searchParams);
-                      if (e.target.value) {
-                        params.set("eventType", e.target.value);
+                      if (val) {
+                        params.set("eventType", val);
                       } else {
                         params.delete("eventType");
                       }
                       params.delete("cursor");
                       setSearchParams(params);
                     }}
+                    text={currentEventType || "All event types"}
                   >
-                    <option value="">All event types</option>
+                    <SelectItem value="">All event types</SelectItem>
                     {eventTypes.map((et) => (
-                      <option key={et} value={et}>
+                      <SelectItem key={et} value={et}>
                         {et}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </select>
+                  </Select>
                 )}
               </div>
               {pendingCount > 0 && (
@@ -241,7 +273,7 @@ export default function Page() {
                 </Dialog>
               )}
             </div>
-            <Table>
+            <Table variant="bright">
               <TableHeader>
                 <TableRow>
                   <TableHeaderCell>ID</TableHeaderCell>
@@ -251,7 +283,7 @@ export default function Page() {
                   <TableHeaderCell>Attempts</TableHeaderCell>
                   <TableHeaderCell>Error</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
-                  <TableHeaderCell>Actions</TableHeaderCell>
+                  <TableHeaderCell alignment="right">Actions</TableHeaderCell>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -279,9 +311,9 @@ export default function Page() {
                         {item.error ? (
                           <SimpleTooltip
                             button={
-                              <span className="max-w-[200px] truncate text-xs">
+                              <InlineCode className="max-w-[200px] truncate">
                                 {truncateError(item.error)}
-                              </span>
+                              </InlineCode>
                             }
                             content={
                               <pre className="max-w-md whitespace-pre-wrap text-xs">
@@ -298,36 +330,38 @@ export default function Page() {
                       <TableCell>
                         <DateTime date={item.createdAt} />
                       </TableCell>
-                      <TableCell>
-                        {item.status === "PENDING" && (
-                          <div className="flex gap-1">
-                            <Button
-                              variant="minimal/small"
-                              disabled={fetcher.state !== "idle"}
-                              onClick={() => {
-                                fetcher.submit(
-                                  { action: "retry", id: item.id },
-                                  { method: "post", action: resourcePath }
-                                );
-                              }}
-                            >
-                              Retry
-                            </Button>
-                            <Button
-                              variant="minimal/small"
-                              disabled={fetcher.state !== "idle"}
-                              onClick={() => {
-                                fetcher.submit(
-                                  { action: "discard", id: item.id },
-                                  { method: "post", action: resourcePath }
-                                );
-                              }}
-                            >
-                              Discard
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
+                      {item.status === "PENDING" ? (
+                        <TableCellMenu
+                          popoverContent={
+                            <>
+                              <PopoverMenuItem
+                                icon={ArrowPathIcon}
+                                title="Retry"
+                                disabled={fetcher.state !== "idle"}
+                                onClick={() => {
+                                  fetcher.submit(
+                                    { action: "retry", id: item.id },
+                                    { method: "post", action: resourcePath }
+                                  );
+                                }}
+                              />
+                              <PopoverMenuItem
+                                icon={TrashIcon}
+                                title="Discard"
+                                disabled={fetcher.state !== "idle"}
+                                onClick={() => {
+                                  fetcher.submit(
+                                    { action: "discard", id: item.id },
+                                    { method: "post", action: resourcePath }
+                                  );
+                                }}
+                              />
+                            </>
+                          }
+                        />
+                      ) : (
+                        <TableCell />
+                      )}
                     </TableRow>
                   ))
                 )}
