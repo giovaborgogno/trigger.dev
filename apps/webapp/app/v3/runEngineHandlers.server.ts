@@ -23,6 +23,7 @@ import {
 import { roomFromFriendlyRunId, socketIo } from "./handleSocketIo.server";
 import { engine } from "./runEngine.server";
 import { PerformTaskRunAlertsService } from "./services/alerts/performTaskRunAlerts.server";
+import { DeadLetterService } from "./services/events/deadLetterService.server";
 import { TaskRunErrorCodes } from "@trigger.dev/core/v3";
 
 export function registerRunEngineEventBusHandlers() {
@@ -85,6 +86,25 @@ export function registerRunEngineEventBusHandlers() {
         error: error instanceof Error ? error.message : error,
         runId: run.id,
         spanId: run.spanId,
+      });
+    }
+  });
+
+  // Handle dead letter queue for event-triggered runs
+  engine.eventBus.on("runFailed", async ({ time, run }) => {
+    try {
+      const taskRun = await prisma.taskRun.findFirst({
+        where: { id: run.id },
+      });
+
+      if (taskRun) {
+        const dlqService = new DeadLetterService();
+        await dlqService.handleFailedRun(taskRun, run.error);
+      }
+    } catch (error) {
+      logger.error("[runFailed] Failed to handle dead letter queue", {
+        error: error instanceof Error ? error.message : error,
+        runId: run.id,
       });
     }
   });
