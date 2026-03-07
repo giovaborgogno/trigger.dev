@@ -10,7 +10,7 @@ export function writeEventLog(entry: EventLogEntry): void {
     event_id: entry.eventId,
     event_type: entry.eventType,
     payload: typeof entry.payload === "string" ? entry.payload : JSON.stringify(entry.payload),
-    published_at: entry.publishedAt.toISOString(),
+    published_at: entry.publishedAt.toISOString().replace("Z", ""),
     environment_id: entry.environmentId,
     project_id: entry.projectId,
     organization_id: entry.organizationId,
